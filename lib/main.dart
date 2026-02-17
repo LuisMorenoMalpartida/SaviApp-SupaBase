@@ -15,14 +15,36 @@ class Toast {
 
 // --- DATA MODELS ---
 
-class Integrante {
+enum UserRole { owner, member }
+
+class SolicitudUnirse {
   String id;
   String nombre;
-  String usuario;
+  String apellido;
   String dni;
   String telefono;
   String correo;
-  String numero;
+  bool aceptada;
+
+  SolicitudUnirse({
+    required this.id,
+    required this.nombre,
+    required this.apellido,
+    required this.dni,
+    required this.telefono,
+    required this.correo,
+    this.aceptada = false,
+  });
+}
+
+class Integrante {
+  String id;
+  String nombre;
+  String usuario; // Rol visible (Admin/Miembro)
+  String dni;
+  String telefono;
+  String correo;
+  String numero; // Número del sorteo
   bool ocupado;
   bool pagoRealizado;
 
@@ -40,21 +62,29 @@ class Integrante {
 }
 
 class SolicitudIntercambio {
-  final String numFrom;
-  final String numTo;
-  SolicitudIntercambio(this.numFrom, this.numTo);
+  final String solicitanteId;
+  final String solicitanteNombre;
+  final String objetivoId;
+  final String objetivoNombre;
+  String status; // 'pendiente', 'aprobada', 'rechazada'
+
+  SolicitudIntercambio({
+    required this.solicitanteId,
+    required this.solicitanteNombre,
+    required this.objetivoId,
+    required this.objetivoNombre,
+    this.status = 'pendiente',
+  });
 }
 
 // --- APP STATE (PROVIDER) ---
 
 class SaviState extends ChangeNotifier {
-  // Config
-  String moneda = "Soles";
-  String usuarioActualId = "USR-001";
-  bool esDueno = true;
-  bool isCreator = true;
+  // Simulación de Rol
+  UserRole rolActual = UserRole.owner; // Por defecto Dueño
+  String miIdUsuario = "OWNER-001";
 
-  // Current Junta Data
+  // Datos Generales
   String nombreJunta = "Viaje a Cancún 2026";
   String montoJunta = "S/ 5,000";
   int numPersonas = 10;
@@ -62,43 +92,52 @@ class SaviState extends ChangeNotifier {
   String fechaInicio = "01/03/2026";
   String fechaFinal = "01/01/2027";
   String codigoJunta = "SAVI-8823";
+  String dniDueno = "12345678";
 
   List<Integrante> listaCupos = [];
-  List<SolicitudIntercambio> solicitudes = [];
+
+  // Buzones
+  List<SolicitudUnirse> solicitudesUnirse = [];
+  List<SolicitudIntercambio> solicitudesIntercambio = [];
 
   // Stats
   double ahorradoTotal = 0.00;
-  int juntasActivas = 0;
+  int juntasActivas = 1;
 
   SaviState() {
-    // Inicializar con datos demo
-    if (listaCupos.isEmpty) {
-      // Admin
-      listaCupos.add(Integrante(
-        id: usuarioActualId,
-        nombre: 'Luis (Yo)',
-        usuario: 'Administrador',
-        numero: '1',
-        ocupado: true,
-        pagoRealizado: false,
-      ));
-      // Demo users
-      listaCupos.add(Integrante(
-          nombre: 'Marizol',
-          usuario: 'Miembro',
-          numero: '2',
-          ocupado: true,
-          pagoRealizado: true));
-      listaCupos.add(Integrante(
-          nombre: 'Carlos',
-          usuario: 'Miembro',
-          numero: '3',
-          ocupado: true,
-          pagoRealizado: false));
-      // Fill rest
-      redimensionarCupos(10);
-    }
+    _inicializarDatosDemo();
   }
+
+  void _inicializarDatosDemo() {
+    listaCupos.clear();
+    // Dueño siempre es el 1 al inicio
+    listaCupos.add(Integrante(
+      id: "OWNER-001",
+      nombre: 'Luis (Dueño)',
+      usuario: 'Administrador',
+      dni: '12345678',
+      numero: '1',
+      ocupado: true,
+      pagoRealizado: false,
+    ));
+    // Rellenar espacios vacíos
+    redimensionarCupos(10);
+  }
+
+  // --- MÉTODOS DE SIMULACIÓN DE ROL ---
+  void cambiarRolSimulado(UserRole nuevoRol) {
+    rolActual = nuevoRol;
+    if (rolActual == UserRole.owner) {
+      miIdUsuario = "OWNER-001";
+    } else {
+      miIdUsuario = "MEMBER-999";
+    }
+    notifyListeners();
+  }
+
+  bool get esDueno => rolActual == UserRole.owner;
+
+  // --- GESTIÓN DE LA JUNTA ---
 
   void redimensionarCupos(int n) {
     int current = listaCupos.length;
@@ -113,75 +152,110 @@ class SaviState extends ChangeNotifier {
     notifyListeners();
   }
 
+  void actualizarFechaFin(String nuevaFecha) {
+    fechaFinal = nuevaFecha;
+    notifyListeners();
+  }
+
   void crearJunta(String nombre, String monto, String cant, String per,
       String inicio, String fin) {
     nombreJunta = nombre;
-    String symbol = moneda == "Soles" ? "S/" : "\$";
+    String symbol = "S/";
     montoJunta = "$symbol $monto";
     numPersonas = int.tryParse(cant) ?? 10;
-    if (numPersonas > 10) numPersonas = 10;
-    if (numPersonas < 1) numPersonas = 1;
     periodo = per;
     fechaInicio = inicio;
     fechaFinal = fin;
 
-    // Reset cupos
     listaCupos.clear();
     listaCupos.add(Integrante(
-        id: usuarioActualId,
+        id: miIdUsuario,
         nombre: 'Tú (Admin)',
         usuario: 'Administrador',
         numero: '1',
         ocupado: true));
     redimensionarCupos(numPersonas);
-
-    // Update Stats
     juntasActivas++;
-
     notifyListeners();
   }
 
-  void generarSorteo(BuildContext context) {
-    var participantes =
-        listaCupos.where((c) => c.ocupado && c.numero != '1').toList();
-    if (participantes.isEmpty) {
-      Toast.show("No hay participantes para sortear", context);
-      return;
-    }
+  // --- FLUJO INTEGRANTE: UNIRSE ---
 
-    List<int> available = List.generate(listaCupos.length - 1, (i) => i + 2);
-    available.shuffle();
-
-    for (int i = 0; i < participantes.length; i++) {
-      if (i < available.length) {
-        participantes[i].numero = available[i].toString();
-      }
-    }
+  void enviarSolicitudUnirse(
+      String nom, String ape, String dni, String tel, String mail) {
+    solicitudesUnirse.add(SolicitudUnirse(
+      id: "MEMBER-999",
+      nombre: nom,
+      apellido: ape,
+      dni: dni,
+      telefono: tel,
+      correo: mail,
+    ));
     notifyListeners();
-    Toast.show("Sorteo realizado", context);
   }
 
-  void actualizarIntegrante(
-      int index, String nombre, String dni, String tel, String correo) {
-    if (index >= 0 && index < listaCupos.length) {
-      listaCupos[index].nombre = nombre;
-      listaCupos[index].dni = dni;
-      listaCupos[index].telefono = tel;
-      listaCupos[index].correo = correo;
-      listaCupos[index].ocupado = true;
-
-      // Auto assign number if empty
-      if (listaCupos[index].numero.isEmpty) {
-        Set<String> used = listaCupos.map((e) => e.numero).toSet();
-        for (int i = 2; i <= listaCupos.length; i++) {
-          if (!used.contains(i.toString())) {
-            listaCupos[index].numero = i.toString();
-            break;
-          }
-        }
-      }
+  void aceptarSolicitud(SolicitudUnirse solicitud) {
+    int index = listaCupos.indexWhere((c) => !c.ocupado);
+    if (index != -1) {
+      listaCupos[index] = Integrante(
+        id: solicitud.id,
+        nombre: "${solicitud.nombre} ${solicitud.apellido}",
+        usuario: "Miembro",
+        dni: solicitud.dni,
+        telefono: solicitud.telefono,
+        correo: solicitud.correo,
+        numero: (index + 1).toString(),
+        ocupado: true,
+      );
+      solicitud.aceptada = true;
+      solicitudesUnirse.remove(solicitud);
       notifyListeners();
     }
+  }
+
+  // --- SORTEO E INTERCAMBIO ---
+
+  void generarSorteoBase() {
+    List<String> numeros =
+        List.generate(numPersonas, (i) => (i + 1).toString());
+    numeros.shuffle();
+    for (int i = 0; i < listaCupos.length; i++) {
+      if (listaCupos[i].ocupado) {
+        listaCupos[i].numero = numeros[i];
+      }
+    }
+    notifyListeners();
+  }
+
+  void solicitarIntercambio(String objetivoId, String objetivoNombre) {
+    var yo = listaCupos.firstWhere((c) => c.id == miIdUsuario,
+        orElse: () => Integrante());
+    solicitudesIntercambio.add(SolicitudIntercambio(
+        solicitanteId: miIdUsuario,
+        solicitanteNombre: yo.nombre,
+        objetivoId: objetivoId,
+        objetivoNombre: objetivoNombre));
+    notifyListeners();
+  }
+
+  void aprobarIntercambio(SolicitudIntercambio solicitud) {
+    int indexA = listaCupos.indexWhere((c) => c.id == solicitud.solicitanteId);
+    int indexB = listaCupos.indexWhere((c) => c.id == solicitud.objetivoId);
+
+    if (indexA != -1 && indexB != -1) {
+      String tempNum = listaCupos[indexA].numero;
+      listaCupos[indexA].numero = listaCupos[indexB].numero;
+      listaCupos[indexB].numero = tempNum;
+
+      solicitud.status = 'aprobada';
+      solicitudesIntercambio.remove(solicitud);
+      notifyListeners();
+    }
+  }
+
+  void rechazarIntercambio(SolicitudIntercambio solicitud) {
+    solicitudesIntercambio.remove(solicitud);
+    notifyListeners();
   }
 
   void subirVoucher(int index) {
@@ -209,7 +283,7 @@ class SaviApp extends StatelessWidget {
       title: 'SAVI',
       theme: ThemeData(
           primarySwatch: Colors.orange,
-          primaryColor: const Color(0xFFFF9800), // Orange
+          primaryColor: const Color(0xFFFF9800),
           scaffoldBackgroundColor: const Color(0xFFFAFAFA),
           useMaterial3: true,
           elevatedButtonTheme: ElevatedButtonThemeData(
@@ -223,6 +297,7 @@ class SaviApp extends StatelessWidget {
             foregroundColor: Colors.black,
             elevation: 0,
           )),
+      // INTEGRACIÓN: Ruta inicial vuelve a ser Welcome
       initialRoute: '/welcome',
       routes: {
         '/welcome': (_) => const WelcomeScreen(),
@@ -235,15 +310,25 @@ class SaviApp extends StatelessWidget {
         '/invitar': (_) => const InvitarScreen(),
         '/reportar': (_) => const ReportarScreen(),
         '/sorteo': (_) => const SorteoScreen(),
+        '/solicitudes_dueno': (_) => const SolicitudesDuenoScreen(),
+        '/form_unirse': (_) => const FormularioUnirseScreen(),
       },
     );
   }
 }
 
-// --- SCREENS ---
+// --- SCREENS ORIGINALES (DISEÑO) ---
+// --- PANTALLA DE BIENVENIDA (CON INDICADORES Y BOTÓN CONDICIONAL) ---
 
-class WelcomeScreen extends StatelessWidget {
+class WelcomeScreen extends StatefulWidget {
   const WelcomeScreen({super.key});
+
+  @override
+  State<WelcomeScreen> createState() => _WelcomeScreenState();
+}
+
+class _WelcomeScreenState extends State<WelcomeScreen> {
+  int _currentPage = 0; // Controla en qué página estamos (0, 1 o 2)
 
   @override
   Widget build(BuildContext context) {
@@ -252,26 +337,69 @@ class WelcomeScreen extends StatelessWidget {
       body: Stack(
         children: [
           PageView(
+            onPageChanged: (int index) {
+              setState(() {
+                _currentPage = index;
+              });
+            },
             children: [
-              _buildPage(
-                  Colors.orange[100]!, "assets/1.png", "Bienvenido a SAVI"),
-              _buildPage(
-                  Colors.orange[200]!, "assets/2.png", "Organiza tus Juntas"),
-              _buildPage(Colors.orange[300]!, "assets/3.png",
-                  "Gestiona Pagos Fácilmente"),
+              _buildPage("assets/1.png"),
+              _buildPage("assets/2.png"),
+              _buildPage("assets/3.png"),
             ],
           ),
+
+          // Indicadores (Bolitas) y Botón
           Positioned(
-            bottom: 50,
+            bottom: 40,
             left: 20,
             right: 20,
-            child: ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 15)),
-              onPressed: () =>
-                  Navigator.pushReplacementNamed(context, '/login'),
-              child: const Text("COMENZAR AHORA",
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Fila de bolitas (Indicadores)
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: List.generate(3, (index) {
+                    return AnimatedContainer(
+                      duration: const Duration(milliseconds: 300),
+                      margin: const EdgeInsets.symmetric(horizontal: 5),
+                      height: 10,
+                      width: _currentPage == index
+                          ? 20
+                          : 10, // Se estira si está activo
+                      decoration: BoxDecoration(
+                        color: _currentPage == index
+                            ? const Color(0xFFFF9800) // Naranja activo
+                            : Colors.grey[300], // Gris inactivo
+                        borderRadius: BorderRadius.circular(5),
+                      ),
+                    );
+                  }),
+                ),
+
+                const SizedBox(height: 30), // Espacio entre bolitas y botón
+
+                // Botón "COMENZAR AHORA" (Solo visible en la última página, índice 2)
+                _currentPage == 2
+                    ? ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 15),
+                            minimumSize: const Size(
+                                double.infinity, 50), // Ancho completo
+                            backgroundColor: const Color(0xFFFF9800),
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(30))),
+                        onPressed: () =>
+                            Navigator.pushReplacementNamed(context, '/login'),
+                        child: const Text("COMENZAR AHORA",
+                            style: TextStyle(
+                                fontSize: 16, fontWeight: FontWeight.bold)),
+                      )
+                    : const SizedBox(
+                        height: 50), // Espacio vacío para mantener altura
+              ],
             ),
           )
         ],
@@ -279,27 +407,25 @@ class WelcomeScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildPage(Color color, String img, String text) {
+  Widget _buildPage(String imagePath) {
     return Container(
-      color: color,
+      color: Colors.white,
       child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            // Placeholder for Image
-            const Icon(Icons.image, size: 100, color: Colors.white),
-            const SizedBox(height: 20),
-            Text(text,
-                style: const TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white)),
-          ],
+        child: Image.asset(
+          imagePath,
+          fit: BoxFit.contain,
+          width: double.infinity,
+          errorBuilder: (context, error, stackTrace) => const Icon(
+              Icons.image_not_supported,
+              size: 100,
+              color: Colors.grey),
         ),
       ),
     );
   }
 }
+
+// --- PANTALLA DE LOGIN Y REGISTRO (CON LOGO) ---
 
 class LoginScreen extends StatelessWidget {
   const LoginScreen({super.key});
@@ -313,8 +439,16 @@ class LoginScreen extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.savings,
-                size: 80, color: Colors.orange), // Logo placeholder
+            // REEMPLAZADO: Icono por Logo
+            Image.asset(
+              'assets/logo.png',
+              height: 100, // Ajusta el tamaño según necesites
+              fit: BoxFit.contain,
+              errorBuilder: (context, error, stackTrace) => const Icon(
+                  Icons.savings,
+                  size: 80,
+                  color: Colors.orange), // Respaldo si falla
+            ),
             const SizedBox(height: 20),
             const Text("¡Bienvenido Estimado cliente!",
                 style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
@@ -366,39 +500,49 @@ class RegisterScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(30.0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const SizedBox(height: 50),
-            const Icon(Icons.savings, size: 80, color: Colors.orange),
-            const SizedBox(height: 20),
-            const Text("Crear Cuenta Nueva",
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 40),
-            _buildTextField(Icons.person, "Nombre Completo"),
-            const SizedBox(height: 15),
-            _buildTextField(Icons.email, "Correo Electrónico"),
-            const SizedBox(height: 15),
-            _buildTextField(Icons.phone, "Número de Teléfono"),
-            const SizedBox(height: 15),
-            _buildTextField(Icons.lock, "Contraseña", isPassword: true),
-            const SizedBox(height: 30),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 15)),
-                onPressed: () => Navigator.pop(context), // Back to login
-                child: const Text("REGISTRARME AHORA"),
+      // AL CAMBIAR ESTO: Envolvemos el ScrollView en un Center
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(30.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              // No necesitamos el SizedBox grande del principio si ya está centrado
+              // REEMPLAZADO: Icono por Logo
+              Image.asset(
+                'assets/logo.png',
+                height: 100,
+                fit: BoxFit.contain,
+                errorBuilder: (context, error, stackTrace) =>
+                    const Icon(Icons.savings, size: 80, color: Colors.orange),
               ),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text("Ya tengo cuenta, Iniciar sesión"),
-            )
-          ],
+              const SizedBox(height: 20),
+              const Text("Crear Cuenta Nueva",
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 40),
+              _buildTextField(Icons.person, "Nombre Completo"),
+              const SizedBox(height: 15),
+              _buildTextField(Icons.email, "Correo Electrónico"),
+              const SizedBox(height: 15),
+              _buildTextField(Icons.phone, "Número de Teléfono"),
+              const SizedBox(height: 15),
+              _buildTextField(Icons.lock, "Contraseña", isPassword: true),
+              const SizedBox(height: 30),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 15)),
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text("REGISTRARME AHORA"),
+                ),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text("Ya tengo cuenta, Iniciar sesión"),
+              )
+            ],
+          ),
         ),
       ),
     );
@@ -417,6 +561,8 @@ class RegisterScreen extends StatelessWidget {
   }
 }
 
+// --- HOME & NUEVA LÓGICA ---
+
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
   @override
@@ -426,7 +572,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _currentIndex = 0;
 
-  // Controllers for Create Tab
+  // Controllers para Crear Junta
   final _nombreCtrl = TextEditingController();
   final _montoCtrl = TextEditingController();
   final _cantCtrl = TextEditingController();
@@ -437,16 +583,58 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     final state = Provider.of<SaviState>(context);
 
-    final List<Widget> tabs = [
-      _buildTabInicio(state),
-      _buildTabMisJuntas(state),
-      _buildTabUnirse(state),
-      _buildTabCrear(state),
-      _buildTabPerfil(state),
-    ];
-
+    // Barra lateral de depuración para cambiar roles
     return Scaffold(
-      body: SafeArea(child: tabs[_currentIndex]),
+      appBar: AppBar(
+        title:
+            const Text("SAVI", style: TextStyle(fontWeight: FontWeight.bold)),
+        actions: [
+          // SIMULADOR DE ROLES (SOLO DEMO)
+          PopupMenuButton<UserRole>(
+            icon: const Icon(Icons.switch_account, color: Colors.purple),
+            tooltip: "Simular Rol",
+            onSelected: (role) {
+              state.cambiarRolSimulado(role);
+              Toast.show(
+                  "Rol cambiado a: ${role == UserRole.owner ? 'Dueño' : 'Integrante'}",
+                  context);
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                  value: UserRole.owner, child: Text("Ver como DUEÑO")),
+              const PopupMenuItem(
+                  value: UserRole.member, child: Text("Ver como INTEGRANTE")),
+            ],
+          ),
+          // BUZÓN DE SOLICITUDES (Solo Dueño)
+          if (state.esDueno)
+            Stack(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.notifications),
+                  onPressed: () =>
+                      Navigator.pushNamed(context, '/solicitudes_dueno'),
+                ),
+                if (state.solicitudesUnirse.isNotEmpty ||
+                    state.solicitudesIntercambio.isNotEmpty)
+                  Positioned(
+                    right: 8,
+                    top: 8,
+                    child: Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: const BoxDecoration(
+                          color: Colors.red, shape: BoxShape.circle),
+                      child: Text(
+                          "${state.solicitudesUnirse.length + state.solicitudesIntercambio.length}",
+                          style: const TextStyle(
+                              color: Colors.white, fontSize: 10)),
+                    ),
+                  )
+              ],
+            )
+        ],
+      ),
+      body: _buildBody(state),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
         onTap: (i) => setState(() => _currentIndex = i),
@@ -466,37 +654,55 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // TAB 1: INICIO
+  Widget _buildBody(SaviState state) {
+    switch (_currentIndex) {
+      case 0:
+        return _buildTabInicio(state);
+      case 1:
+        return _buildTabMisJuntas(state);
+      case 2:
+        return _buildTabUnirse(state);
+      case 3:
+        return _buildTabCrear(state);
+      case 4:
+        return _buildTabPerfil(state);
+      default:
+        return Container();
+    }
+  }
+
+  // TAB 1: INICIO (Con diseño original + lógica nueva)
   Widget _buildTabInicio(SaviState state) {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Logo Card
           Container(
-            width: double.infinity,
-            height: 80,
-            decoration: BoxDecoration(
-                color: const Color(0xFF333333),
-                borderRadius: BorderRadius.circular(0)), // Dark header like KV
-            child: Center(
-                child: Text("SAVI",
-                    style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 30,
-                        fontWeight: FontWeight.bold))),
-          ),
-          const SizedBox(height: 20),
-          // Banner Image
-          Container(
-            height: 180,
+            padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
               color: Colors.orange[100],
               borderRadius: BorderRadius.circular(20),
             ),
-            child: const Center(
-                child: Icon(Icons.image, size: 80, color: Colors.white)),
+            child: Row(
+              children: [
+                const Icon(Icons.waving_hand, color: Colors.orange, size: 40),
+                const SizedBox(width: 15),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text("Hola, ${state.esDueno ? 'Luis' : 'Integrante'}",
+                          style: const TextStyle(
+                              fontSize: 20, fontWeight: FontWeight.bold)),
+                      Text(
+                          "Rol actual: ${state.esDueno ? 'Organizador' : 'Participante'}",
+                          style: const TextStyle(color: Colors.grey)),
+                    ],
+                  ),
+                )
+              ],
+            ),
           ),
           const SizedBox(height: 20),
           // Stats Row
@@ -505,8 +711,8 @@ class _HomeScreenState extends State<HomeScreen> {
               Expanded(
                   child: _buildStatCard(
                       "Ahorrado Total",
-                      "S/ ${state.ahorradoTotal.toStringAsFixed(2)}",
-                      Icons.account_balance_wallet_outlined)),
+                      "S/ ${state.ahorradoTotal}",
+                      Icons.account_balance_wallet)),
               const SizedBox(width: 15),
               Expanded(
                   child: _buildStatCard("Juntas Activas",
@@ -527,23 +733,9 @@ class _HomeScreenState extends State<HomeScreen> {
               Expanded(
                   child: ElevatedButton(
                       onPressed: () => setState(() => _currentIndex = 2),
-                      child: const Text("BUSCAR"))),
+                      child: const Text("BUSCAR JUNTA"))),
             ],
           ),
-          const SizedBox(height: 20),
-          // Tip Card
-          Card(
-            shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(15),
-                side: BorderSide(color: Colors.orange.withOpacity(0.3))),
-            child: const ListTile(
-              leading:
-                  Icon(Icons.lightbulb_outline, color: Colors.orange, size: 40),
-              title: Text("Tip Financiero",
-                  style: TextStyle(fontWeight: FontWeight.bold)),
-              subtitle: Text("Invierte el 10% de tus ingresos en tu junta."),
-            ),
-          )
         ],
       ),
     );
@@ -552,20 +744,19 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildStatCard(String title, String val, IconData icon) {
     return Card(
       color: Colors.orange,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
       child: Padding(
         padding: const EdgeInsets.all(15.0),
         child: Column(
           children: [
             Icon(icon, color: Colors.white, size: 30),
             const SizedBox(height: 5),
-            Text(title,
-                style: const TextStyle(color: Colors.white70, fontSize: 12)),
             Text(val,
                 style: const TextStyle(
                     color: Colors.white,
                     fontSize: 18,
                     fontWeight: FontWeight.bold)),
+            Text(title,
+                style: const TextStyle(color: Colors.white70, fontSize: 12)),
           ],
         ),
       ),
@@ -574,49 +765,62 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // TAB 2: MIS JUNTAS
   Widget _buildTabMisJuntas(SaviState state) {
+    bool estoyEnJunta = state.listaCupos.any((c) => c.id == state.miIdUsuario);
+
+    if (!state.esDueno && !estoyEnJunta) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(30.0),
+          child: Text(
+              "No tienes juntas activas.\nVe a la pestaña 'Unirse' para buscar una junta.",
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.grey)),
+        ),
+      );
+    }
+
     return ListView(
       padding: const EdgeInsets.all(15),
       children: [
-        if (state.juntasActivas == 0)
-          const SizedBox(
-              height: 300,
-              child: Center(
-                  child: Text(
-                      "Aquí aparecerán tus juntas creadas.\nUsa la pestaña 'Crear' para empezar.",
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: Colors.grey))))
-        else
-          Card(
-            margin: const EdgeInsets.only(bottom: 10),
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-            child: InkWell(
-              onTap: () => Navigator.pushNamed(context, '/detalles'),
-              child: Padding(
-                padding: const EdgeInsets.all(15.0),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(state.nombreJunta,
-                              style: const TextStyle(
-                                  fontWeight: FontWeight.bold, fontSize: 16)),
-                          const Text("Gestión activa",
-                              style:
-                                  TextStyle(color: Colors.grey, fontSize: 12)),
-                        ],
-                      ),
+        Card(
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+          child: InkWell(
+            onTap: () => Navigator.pushNamed(context, '/detalles'),
+            child: Padding(
+              padding: const EdgeInsets.all(15.0),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                      backgroundColor: Colors.blue[100],
+                      child: const Icon(Icons.savings, color: Colors.blue)),
+                  const SizedBox(width: 15),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(state.nombreJunta,
+                            style: const TextStyle(
+                                fontWeight: FontWeight.bold, fontSize: 16)),
+                        Text(
+                            state.esDueno
+                                ? "Eres el Organizador"
+                                : "Participante",
+                            style: const TextStyle(
+                                color: Colors.grey, fontSize: 12)),
+                      ],
                     ),
-                    Text(state.montoJunta,
-                        style: const TextStyle(
-                            fontWeight: FontWeight.bold, fontSize: 16)),
-                  ],
-                ),
+                  ),
+                  Text(state.montoJunta,
+                      style: const TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(width: 10),
+                  const Icon(Icons.arrow_forward_ios,
+                      size: 16, color: Colors.grey)
+                ],
               ),
             ),
-          )
+          ),
+        )
       ],
     );
   }
@@ -633,46 +837,32 @@ class _HomeScreenState extends State<HomeScreen> {
             child: Padding(
               padding: const EdgeInsets.all(20.0),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text("Ingresa el Código QR o Link",
+                  const Text("Unirse a una Junta",
                       style:
-                          TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                          TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
                   const SizedBox(height: 15),
-                  TextField(
+                  const TextField(
                     decoration: InputDecoration(
-                      hintText: "Ej: SAVI-8823",
-                      suffixIcon:
-                          const Icon(Icons.qr_code, color: Colors.orange),
-                      border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10)),
+                      labelText: "Código de Invitación o Link",
+                      prefixIcon: Icon(Icons.link),
+                      border: OutlineInputBorder(),
                     ),
                   ),
-                  const SizedBox(height: 15),
-                  Row(
-                    children: [
-                      IconButton(
-                          onPressed: () {
-                            Toast.show(
-                                "Escaneo no disponible en demo", context);
-                          },
-                          icon: const Icon(Icons.qr_code_scanner,
-                              color: Colors.orange)),
-                      IconButton(
-                          onPressed: () {},
-                          icon: const Icon(Icons.upload_file,
-                              color: Colors.orange)),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: ElevatedButton(
-                          onPressed: () {
-                            Toast.show("Solicitud enviada", context);
-                          },
-                          child: const Text("UNIRSE AHORA"),
-                        ),
-                      )
-                    ],
-                  )
+                  const SizedBox(height: 20),
+                  ElevatedButton(
+                    onPressed: () {
+                      Navigator.pushNamed(context, '/form_unirse');
+                    },
+                    style: ElevatedButton.styleFrom(
+                        minimumSize: const Size(double.infinity, 50)),
+                    child: const Text("SOY INTEGRANTE (SOLICITAR)"),
+                  ),
+                  const SizedBox(height: 10),
+                  const Text(
+                      "Al pulsar 'Soy Integrante', deberás llenar tus datos para que el dueño apruebe tu ingreso.",
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.grey, fontSize: 12)),
                 ],
               ),
             ),
@@ -684,6 +874,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // TAB 4: CREAR
   Widget _buildTabCrear(SaviState state) {
+    if (!state.esDueno) {
+      return const Center(
+          child: Text("Debes ser Dueño/Organizador para crear juntas."));
+    }
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
       child: Card(
@@ -741,7 +935,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         state.periodo,
                         _inicioCtrl.text,
                         _finCtrl.text);
-                    setState(() => _currentIndex = 1); // Go to Mis Juntas
+                    setState(() => _currentIndex = 1);
                     Toast.show("Junta creada exitosamente", context);
                   },
                   child: const Text("CREAR Y PUBLICAR"),
@@ -798,9 +992,10 @@ class _HomeScreenState extends State<HomeScreen> {
         const SizedBox(height: 20),
         const Icon(Icons.account_circle, size: 100, color: Colors.grey),
         const SizedBox(height: 10),
-        const Center(
-            child: Text("Usuario Savi",
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold))),
+        Center(
+            child: Text(state.esDueno ? "Luis (Admin)" : "Usuario Miembro",
+                style: const TextStyle(
+                    fontSize: 20, fontWeight: FontWeight.bold))),
         const SizedBox(height: 30),
         const Divider(),
         ListTile(
@@ -816,14 +1011,233 @@ class _HomeScreenState extends State<HomeScreen> {
         ElevatedButton(
           style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
           onPressed: () => Navigator.pushReplacementNamed(context, '/login'),
-          child: const Text("CERRAR SESIÓN"),
+          child: const Text("CERRAR SESIÓN",
+              style: TextStyle(color: Colors.white)),
         )
       ],
     );
   }
 }
 
-// --- DETALLES SCREEN ---
+// --- FORMULARIO UNIRSE (CORREGIDO Y FUNCIONAL) ---
+
+class FormularioUnirseScreen extends StatefulWidget {
+  const FormularioUnirseScreen({super.key});
+
+  @override
+  State<FormularioUnirseScreen> createState() => _FormularioUnirseScreenState();
+}
+
+class _FormularioUnirseScreenState extends State<FormularioUnirseScreen> {
+  final _formKey = GlobalKey<FormState>();
+
+  // Controladores
+  final _dniCtrl = TextEditingController();
+  final _nomCtrl = TextEditingController();
+  final _apeCtrl = TextEditingController();
+  final _telCtrl = TextEditingController();
+  final _mailCtrl = TextEditingController();
+
+  @override
+  Widget build(BuildContext context) {
+    final state = Provider.of<SaviState>(context);
+
+    return Scaffold(
+      appBar: AppBar(title: const Text("Solicitud de Ingreso")),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            children: [
+              const Text(
+                  "Por favor, completa tus datos para enviar la solicitud al organizador.",
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.grey)),
+              const SizedBox(height: 20),
+
+              // CAMPOS DE TEXTO
+              TextFormField(
+                controller: _dniCtrl,
+                decoration: const InputDecoration(
+                    labelText: "DNI", border: OutlineInputBorder()),
+                validator: (v) => (v == null || v.isEmpty) ? "Requerido" : null,
+              ),
+              const SizedBox(height: 15),
+              TextFormField(
+                controller: _nomCtrl,
+                decoration: const InputDecoration(
+                    labelText: "Nombres", border: OutlineInputBorder()),
+                validator: (v) => (v == null || v.isEmpty) ? "Requerido" : null,
+              ),
+              const SizedBox(height: 15),
+              TextFormField(
+                controller: _apeCtrl,
+                decoration: const InputDecoration(
+                    labelText: "Apellidos", border: OutlineInputBorder()),
+                validator: (v) => (v == null || v.isEmpty) ? "Requerido" : null,
+              ),
+              const SizedBox(height: 15),
+              TextFormField(
+                controller: _telCtrl,
+                decoration: const InputDecoration(
+                    labelText: "Celular / WhatsApp",
+                    border: OutlineInputBorder()),
+                validator: (v) => (v == null || v.isEmpty) ? "Requerido" : null,
+              ),
+              const SizedBox(height: 15),
+              TextFormField(
+                controller: _mailCtrl,
+                decoration: const InputDecoration(
+                    labelText: "Correo Electrónico",
+                    border: OutlineInputBorder()),
+                validator: (v) => (v == null || v.isEmpty) ? "Requerido" : null,
+              ),
+              const SizedBox(height: 30),
+
+              // BOTÓN DE ENVÍO
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                    minimumSize: const Size(double.infinity, 50)),
+                onPressed: () {
+                  // 1. Validar formulario de forma segura
+                  if (_formKey.currentState?.validate() ?? false) {
+                    // 2. Enviar datos al Estado (Dueño)
+                    state.enviarSolicitudUnirse(_nomCtrl.text, _apeCtrl.text,
+                        _dniCtrl.text, _telCtrl.text, _mailCtrl.text);
+
+                    // 3. Simular que ahora eres miembro (para esperar aprobación)
+                    state.cambiarRolSimulado(UserRole.member);
+
+                    // 4. Mostrar confirmación y LUEGO cerrar
+                    showDialog(
+                        context: context,
+                        barrierDismissible: false, // Obligar a usar el botón OK
+                        builder: (BuildContext dialogContext) {
+                          return AlertDialog(
+                            title: const Text("Solicitud Enviada"),
+                            content: const Text(
+                                "✅ Tu solicitud ha sido enviada al dueño.\n\n"
+                                "⚠️ PARA PROBAR:\n"
+                                "1. Dale OK abajo.\n"
+                                "2. Cambia tu rol a 'DUEÑO' (Icono Morado arriba).\n"
+                                "3. Revisa la campana de notificaciones."),
+                            actions: [
+                              TextButton(
+                                onPressed: () {
+                                  // Cerrar el diálogo
+                                  Navigator.of(dialogContext).pop();
+                                  // Cerrar la pantalla del formulario
+                                  Navigator.of(context).pop();
+                                },
+                                child: const Text("OK, ENTENDIDO"),
+                              )
+                            ],
+                          );
+                        });
+                  }
+                },
+                child: const Text("ENVIAR SOLICITUD"),
+              )
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// --- BUZÓN DEL DUEÑO (SOLICITUDES) ---
+
+class SolicitudesDuenoScreen extends StatelessWidget {
+  const SolicitudesDuenoScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final state = Provider.of<SaviState>(context);
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text("Solicitudes Pendientes"),
+          bottom: const TabBar(
+            tabs: [
+              Tab(text: "Ingresos"),
+              Tab(text: "Intercambios"),
+            ],
+          ),
+        ),
+        body: TabBarView(
+          children: [
+            // TAB INGRESOS
+            state.solicitudesUnirse.isEmpty
+                ? const Center(child: Text("No hay solicitudes de ingreso"))
+                : ListView.builder(
+                    itemCount: state.solicitudesUnirse.length,
+                    itemBuilder: (ctx, i) {
+                      final sol = state.solicitudesUnirse[i];
+                      return Card(
+                        margin: const EdgeInsets.all(10),
+                        child: ListTile(
+                          leading:
+                              const CircleAvatar(child: Icon(Icons.person_add)),
+                          title: Text("${sol.nombre} ${sol.apellido}"),
+                          subtitle:
+                              Text("DNI: ${sol.dni}\nQuiere unirse a la junta"),
+                          isThreeLine: true,
+                          trailing: IconButton(
+                            icon: const Icon(Icons.check_circle,
+                                color: Colors.green, size: 30),
+                            onPressed: () {
+                              state.aceptarSolicitud(sol);
+                              Toast.show("Solicitud aceptada", context);
+                            },
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+            // TAB INTERCAMBIOS
+            state.solicitudesIntercambio.isEmpty
+                ? const Center(child: Text("No hay solicitudes de intercambio"))
+                : ListView.builder(
+                    itemCount: state.solicitudesIntercambio.length,
+                    itemBuilder: (ctx, i) {
+                      final swap = state.solicitudesIntercambio[i];
+                      return Card(
+                        margin: const EdgeInsets.all(10),
+                        child: ListTile(
+                          title: const Text("Solicitud de Intercambio de N°"),
+                          subtitle: Text(
+                              "${swap.solicitanteNombre} quiere cambiar con ${swap.objetivoNombre}"),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                icon:
+                                    const Icon(Icons.close, color: Colors.red),
+                                onPressed: () =>
+                                    state.rechazarIntercambio(swap),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.check,
+                                    color: Colors.green),
+                                onPressed: () => state.aprobarIntercambio(swap),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  )
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// --- DETALLES SCREEN (DASHBOARD) ---
 class DetallesJuntaScreen extends StatelessWidget {
   const DetallesJuntaScreen({super.key});
 
@@ -859,6 +1273,7 @@ class DetallesJuntaScreen extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 20),
+            // LAS 4 CARDS (Con diseño original)
             GridView.count(
               shrinkWrap: true,
               crossAxisCount: 2,
@@ -867,14 +1282,14 @@ class DetallesJuntaScreen extends StatelessWidget {
               childAspectRatio: 0.9,
               physics: const NeverScrollableScrollPhysics(),
               children: [
-                _buildActionCard(context, "Detalles", "Consulta datos",
-                    Icons.list_alt, Colors.blue, '/info'),
-                _buildActionCard(context, "Invitar", "Comparte ID",
-                    Icons.qr_code, Colors.green, '/invitar'),
-                _buildActionCard(context, "Integrantes", "Registra pagos",
-                    Icons.groups, Colors.blue, '/pagos'),
-                _buildActionCard(context, "Reportar", "Informa faltas",
-                    Icons.report_problem, Colors.red, '/reportar'),
+                _buildActionCard(context, "Detalles", "Ver info de la junta",
+                    Icons.info, Colors.blue, '/info'),
+                _buildActionCard(context, "Invitar", "Agregar miembros",
+                    Icons.person_add, Colors.green, '/invitar'),
+                _buildActionCard(context, "Integrantes", "Ver y editar",
+                    Icons.group, Colors.orange, '/pagos'),
+                _buildActionCard(context, "Reportar", "Reportar problema",
+                    Icons.report, Colors.red, '/reportar'),
               ],
             )
           ],
@@ -887,6 +1302,7 @@ class DetallesJuntaScreen extends StatelessWidget {
       IconData icon, Color color, String route) {
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      elevation: 2,
       child: InkWell(
         onTap: () => Navigator.pushNamed(context, route),
         borderRadius: BorderRadius.circular(20),
@@ -895,7 +1311,12 @@ class DetallesJuntaScreen extends StatelessWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icon, size: 40, color: color),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                    color: color.withOpacity(0.1), shape: BoxShape.circle),
+                child: Icon(icon, size: 30, color: color),
+              ),
               const SizedBox(height: 10),
               Text(title,
                   style: const TextStyle(
@@ -912,147 +1333,15 @@ class DetallesJuntaScreen extends StatelessWidget {
   }
 }
 
-// --- INTEGRANTES SCREEN ---
-class IntegrantesPagosScreen extends StatelessWidget {
-  const IntegrantesPagosScreen({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final state = Provider.of<SaviState>(context);
-    return Scaffold(
-      appBar: AppBar(title: const Text("Integrantes y Pagos")),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => Navigator.pushNamed(context, '/sorteo'),
-        child: const Icon(Icons.shuffle),
-      ),
-      body: GridView.builder(
-        padding: const EdgeInsets.all(15),
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2,
-            childAspectRatio: 0.75,
-            crossAxisSpacing: 10,
-            mainAxisSpacing: 10),
-        itemCount: state.listaCupos.length,
-        itemBuilder: (context, index) {
-          final cupo = state.listaCupos[index];
-          final esMio = cupo.id == state.usuarioActualId;
-
-          return Card(
-            elevation: 2,
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-            child: InkWell(
-              onTap: () => _showEditDialog(context, state, index),
-              child: Padding(
-                padding: const EdgeInsets.all(10.0),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    CircleAvatar(
-                      radius: 20,
-                      backgroundColor:
-                          cupo.pagoRealizado ? Colors.green : Colors.grey[300],
-                      child: Text(cupo.numero.isEmpty ? "?" : cupo.numero,
-                          style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: Colors.white)),
-                    ),
-                    Text(cupo.nombre,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis),
-                    Text(cupo.usuario,
-                        style:
-                            const TextStyle(fontSize: 10, color: Colors.grey)),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                          color: cupo.pagoRealizado
-                              ? Colors.green[50]
-                              : Colors.red[50],
-                          borderRadius: BorderRadius.circular(5)),
-                      child: Text(
-                          cupo.pagoRealizado ? "PAGO RECIBIDO" : "PENDIENTE",
-                          style: TextStyle(
-                              fontSize: 9,
-                              fontWeight: FontWeight.bold,
-                              color: cupo.pagoRealizado
-                                  ? Colors.green
-                                  : Colors.red)),
-                    ),
-                    if (esMio && !cupo.pagoRealizado)
-                      ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                            minimumSize: const Size(0, 30),
-                            padding:
-                                const EdgeInsets.symmetric(horizontal: 10)),
-                        onPressed: () => state.subirVoucher(index),
-                        child: const Text("SUBIR PAGO",
-                            style: TextStyle(fontSize: 10)),
-                      )
-                    else if (cupo.pagoRealizado)
-                      TextButton.icon(
-                        icon: const Icon(Icons.visibility, size: 12),
-                        label: const Text("VOUCHER",
-                            style: TextStyle(fontSize: 10)),
-                        onPressed: () =>
-                            Toast.show("Voucher visualizado", context),
-                      )
-                  ],
-                ),
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  void _showEditDialog(BuildContext context, SaviState state, int index) {
-    final cupo = state.listaCupos[index];
-    final nombreCtrl = TextEditingController(text: cupo.nombre);
-    final dniCtrl = TextEditingController(text: cupo.dni);
-
-    showDialog(
-        context: context,
-        builder: (ctx) => AlertDialog(
-              title: const Text("Editar Integrante"),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(
-                      controller: nombreCtrl,
-                      decoration: const InputDecoration(labelText: "Nombre")),
-                  TextField(
-                      controller: dniCtrl,
-                      decoration: const InputDecoration(labelText: "DNI")),
-                ],
-              ),
-              actions: [
-                TextButton(
-                    onPressed: () => Navigator.pop(ctx),
-                    child: const Text("CANCELAR")),
-                ElevatedButton(
-                    onPressed: () {
-                      state.actualizarIntegrante(
-                          index, nombreCtrl.text, dniCtrl.text, "", "");
-                      Navigator.pop(ctx);
-                    },
-                    child: const Text("GUARDAR"))
-              ],
-            ));
-  }
-}
-
-// --- INFO SCREEN ---
+// --- INFO SCREEN (DETALLES ESPECIFICOS CON PERMISOS) ---
 class InfoJuntaScreen extends StatelessWidget {
   const InfoJuntaScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
     final state = Provider.of<SaviState>(context);
+    final esDueno = state.esDueno;
+
     return Scaffold(
       appBar: AppBar(title: const Text("Detalles de la Junta")),
       body: ListView(
@@ -1068,16 +1357,70 @@ class InfoJuntaScreen extends StatelessWidget {
             mainAxisSpacing: 10,
             physics: const NeverScrollableScrollPhysics(),
             children: [
-              _buildGridItem("Periodo", state.periodo, Icons.access_time),
-              _buildGridItem(
-                  "Personas", "${state.numPersonas} Miembros", Icons.people),
-              _buildGridItem("Inicio", state.fechaInicio, Icons.date_range),
-              _buildGridItem("Fin", state.fechaFinal, Icons.event_available),
+              // No Editables
+              _buildGridItem("Periodo", state.periodo, Icons.access_time,
+                  editable: false),
+              _buildGridItem("Inicio", state.fechaInicio, Icons.date_range,
+                  editable: false),
+
+              // Editables solo por dueño
+              GestureDetector(
+                onTap: esDueno ? () => _editarPersonas(context, state) : null,
+                child: _buildGridItem(
+                    "Personas", "${state.numPersonas} Miembros", Icons.people,
+                    editable: esDueno),
+              ),
+              GestureDetector(
+                onTap: esDueno ? () => _editarFechaFin(context, state) : null,
+                child: _buildGridItem(
+                    "Fin", state.fechaFinal, Icons.event_available,
+                    editable: esDueno),
+              ),
+
+              // Navegación a Sorteo
+              GestureDetector(
+                onTap: () => Navigator.pushNamed(context, '/sorteo'),
+                child: _buildGridItem("Sorteo", "Ver turnos", Icons.shuffle,
+                    editable: true, isAction: true),
+              ),
+
+              // Info estática
+              _buildGridItem("Validación DNI", "DNI Dueño: ${state.dniDueno}",
+                  Icons.verified_user,
+                  editable: false),
             ],
           )
         ],
       ),
     );
+  }
+
+  void _editarPersonas(BuildContext context, SaviState state) {
+    showDialog(
+        context: context,
+        builder: (_) => AlertDialog(
+              title: const Text("Editar Cantidad"),
+              content: const Text("Aumentar cupos a 10?"),
+              actions: [
+                TextButton(
+                    onPressed: () {
+                      state.redimensionarCupos(10);
+                      Navigator.pop(context);
+                    },
+                    child: const Text("ACEPTAR"))
+              ],
+            ));
+  }
+
+  void _editarFechaFin(BuildContext context, SaviState state) async {
+    DateTime? picked = await showDatePicker(
+        context: context,
+        initialDate: DateTime.now(),
+        firstDate: DateTime.now(),
+        lastDate: DateTime(2030));
+    if (picked != null) {
+      state.actualizarFechaFin(DateFormat('dd/MM/yyyy').format(picked));
+    }
   }
 
   Widget _buildInfoCard(String title, String val, IconData icon, Color color) {
@@ -1089,7 +1432,6 @@ class InfoJuntaScreen extends StatelessWidget {
         child: Column(
           children: [
             Text(title, style: const TextStyle(color: Colors.grey)),
-            const SizedBox(height: 5),
             Text(val,
                 style: TextStyle(
                     fontSize: 28, fontWeight: FontWeight.bold, color: color)),
@@ -1099,21 +1441,39 @@ class InfoJuntaScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildGridItem(String title, String val, IconData icon) {
+  Widget _buildGridItem(String title, String val, IconData icon,
+      {bool editable = false, bool isAction = false}) {
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-      child: Padding(
-        padding: const EdgeInsets.all(15),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
-            const SizedBox(height: 10),
-            Icon(icon, size: 30, color: Colors.orange),
-            const SizedBox(height: 10),
-            Text(val, style: const TextStyle(fontSize: 12, color: Colors.grey)),
-          ],
-        ),
+      child: Stack(
+        children: [
+          Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(title,
+                    style: const TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 10),
+                Icon(icon,
+                    size: 30, color: isAction ? Colors.purple : Colors.orange),
+                const SizedBox(height: 10),
+                Text(val,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 12, color: Colors.grey)),
+              ],
+            ),
+          ),
+          if (editable && !isAction)
+            const Positioned(
+                right: 8,
+                top: 8,
+                child: Icon(Icons.edit, size: 16, color: Colors.grey)),
+          if (isAction)
+            const Positioned(
+                right: 8,
+                top: 8,
+                child: Icon(Icons.arrow_forward, size: 16, color: Colors.grey)),
+        ],
       ),
     );
   }
@@ -1126,56 +1486,82 @@ class SorteoScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final state = Provider.of<SaviState>(context);
+    final esDueno = state.esDueno;
+
     return Scaffold(
-      appBar: AppBar(title: const Text("Sorteo de Turnos")),
+      appBar:
+          AppBar(title: Text(esDueno ? "Gestión Sorteo" : "Resultados Sorteo")),
       body: Column(
         children: [
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: const BoxDecoration(
-                color: Colors.white,
-                borderRadius:
-                    BorderRadius.vertical(bottom: Radius.circular(20))),
-            child: Column(
-              children: [
-                ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                      minimumSize: const Size(double.infinity, 50)),
-                  onPressed: () => state.generarSorteo(context),
-                  icon: const Icon(Icons.casino),
-                  label: const Text("GENERAR SORTEO"),
-                ),
-                const SizedBox(height: 10),
-                OutlinedButton.icon(
-                  style: OutlinedButton.styleFrom(
-                      minimumSize: const Size(double.infinity, 50)),
-                  onPressed: () {
-                    Toast.show("Solicitud enviada", context);
-                  },
-                  icon: const Icon(Icons.swap_horiz),
-                  label: const Text("SOLICITAR INTERCAMBIO"),
-                )
-              ],
+          if (esDueno) ...[
+            Container(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                children: [
+                  _botonDueno(Icons.casino, "REALIZAR SORTEO", Colors.orange,
+                      () {
+                    state.generarSorteoBase();
+                    Toast.show("Sorteo realizado", context);
+                  }),
+                  const SizedBox(height: 10),
+                  _botonDueno(
+                      Icons.swap_horiz,
+                      "VER SOLICITUDES (${state.solicitudesIntercambio.length})",
+                      Colors.blue,
+                      () => Navigator.pushNamed(context, '/solicitudes_dueno')),
+                  const SizedBox(height: 10),
+                  _botonDueno(
+                      Icons.verified_user,
+                      "VALIDACIÓN DNI",
+                      Colors.green,
+                      () => Toast.show(
+                          "Todos los DNI validados correctamente", context)),
+                ],
+              ),
             ),
-          ),
-          const SizedBox(height: 20),
-          const Text("Asignaciones actuales",
-              style:
-                  TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
+            const Divider(),
+          ] else ...[
+            Padding(
+              padding: const EdgeInsets.all(15.0),
+              child: Container(
+                padding: const EdgeInsets.all(10),
+                color: Colors.blue[50],
+                child: const Row(children: [
+                  Icon(Icons.info_outline, color: Colors.blue),
+                  SizedBox(width: 10),
+                  Expanded(
+                      child: Text(
+                          "Toca a un compañero para solicitar intercambio de número."))
+                ]),
+              ),
+            )
+          ],
           Expanded(
             child: ListView.builder(
               padding: const EdgeInsets.all(20),
               itemCount: state.listaCupos.length,
               itemBuilder: (ctx, i) {
                 final c = state.listaCupos[i];
+                final soyYo = c.id == state.miIdUsuario;
+
                 return Card(
+                  color: soyYo ? Colors.yellow[50] : Colors.white,
                   child: ListTile(
                     leading: CircleAvatar(
-                        backgroundColor: Colors.orange,
-                        child: Text(c.numero,
-                            style: const TextStyle(color: Colors.white))),
-                    title: Text(c.nombre),
-                    subtitle: Text(c.usuario),
+                      backgroundColor:
+                          c.ocupado ? Colors.orange : Colors.grey[200],
+                      child: Text(c.numero.isEmpty ? "?" : c.numero,
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold)),
+                    ),
+                    title: Text(c.nombre + (soyYo ? " (Tú)" : "")),
+                    subtitle: Text(c.ocupado ? "Miembro" : "Disponible"),
+                    onTap: (!esDueno && !soyYo && c.ocupado)
+                        ? () {
+                            _dialogSolicitarCambio(context, state, c);
+                          }
+                        : null,
                   ),
                 );
               },
@@ -1185,9 +1571,185 @@ class SorteoScreen extends StatelessWidget {
       ),
     );
   }
+
+  Widget _botonDueno(
+      IconData icon, String label, Color color, VoidCallback onTap) {
+    return ElevatedButton.icon(
+      style: ElevatedButton.styleFrom(
+          backgroundColor: color,
+          minimumSize: const Size(double.infinity, 50),
+          alignment: Alignment.centerLeft),
+      icon: Icon(icon, color: Colors.white),
+      label: Text(label,
+          style: const TextStyle(
+              color: Colors.white, fontWeight: FontWeight.bold)),
+      onPressed: onTap,
+    );
+  }
+
+  void _dialogSolicitarCambio(
+      BuildContext context, SaviState state, Integrante objetivo) {
+    showDialog(
+        context: context,
+        builder: (_) => AlertDialog(
+              title: const Text("Solicitar Intercambio"),
+              content: Text(
+                  "¿Deseas enviar una solicitud al dueño para cambiar tu número con ${objetivo.nombre}?"),
+              actions: [
+                TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text("CANCELAR")),
+                ElevatedButton(
+                    onPressed: () {
+                      state.solicitarIntercambio(objetivo.id, objetivo.nombre);
+                      Navigator.pop(context);
+                      Toast.show("Solicitud enviada al dueño", context);
+                    },
+                    child: const Text("ENVIAR"))
+              ],
+            ));
+  }
 }
 
-// --- INVITAR & REPORTAR SCREENS ---
+// --- INTEGRANTES & PAGOS ---
+
+class IntegrantesPagosScreen extends StatelessWidget {
+  const IntegrantesPagosScreen({super.key});
+  @override
+  Widget build(BuildContext context) {
+    final state = Provider.of<SaviState>(context);
+    return Scaffold(
+      appBar: AppBar(title: const Text("Estado de Pagos")),
+      body: GridView.builder(
+        padding: const EdgeInsets.all(15),
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 2,
+            childAspectRatio: 0.8,
+            crossAxisSpacing: 10,
+            mainAxisSpacing: 10),
+        itemCount: state.listaCupos.length,
+        itemBuilder: (context, index) {
+          final cupo = state.listaCupos[index];
+          final esMio = cupo.id == state.miIdUsuario;
+
+          return Card(
+            elevation: 2,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                CircleAvatar(
+                  backgroundColor:
+                      cupo.pagoRealizado ? Colors.green : Colors.red[100],
+                  child: Icon(
+                      cupo.pagoRealizado ? Icons.check : Icons.access_time,
+                      color: cupo.pagoRealizado ? Colors.white : Colors.red),
+                ),
+                const SizedBox(height: 10),
+                Text(cupo.nombre,
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                    maxLines: 1),
+                if (cupo.pagoRealizado)
+                  const Text("PAGADO",
+                      style: TextStyle(
+                          color: Colors.green,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 10))
+                else
+                  const Text("PENDIENTE",
+                      style: TextStyle(
+                          color: Colors.red,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 10)),
+                const SizedBox(height: 10),
+                if (esMio && !cupo.pagoRealizado)
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                        minimumSize: const Size(80, 30)),
+                    onPressed: () => state.subirVoucher(index),
+                    child: const Text("SUBIR PAGO",
+                        style: TextStyle(fontSize: 10)),
+                  ),
+                if (cupo.pagoRealizado)
+                  TextButton(
+                      onPressed: () {},
+                      child: const Text("Ver Voucher",
+                          style: TextStyle(fontSize: 10)))
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+// --- REPORTAR & INVITAR ---
+
+class ReportarScreen extends StatefulWidget {
+  const ReportarScreen({super.key});
+  @override
+  State<ReportarScreen> createState() => _ReportarScreenState();
+}
+
+class _ReportarScreenState extends State<ReportarScreen> {
+  String? seleccionado;
+  final comentarioCtrl = TextEditingController();
+
+  @override
+  Widget build(BuildContext context) {
+    final state = Provider.of<SaviState>(context);
+    final deudores =
+        state.listaCupos.where((c) => c.ocupado && !c.pagoRealizado).toList();
+
+    return Scaffold(
+      appBar: AppBar(title: const Text("Reportar Incidencia")),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text("Reportar falta de pago u otro problema",
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 20),
+            DropdownButtonFormField<String>(
+              hint: const Text("Seleccionar integrante"),
+              value: seleccionado,
+              items: deudores
+                  .map((c) =>
+                      DropdownMenuItem(value: c.nombre, child: Text(c.nombre)))
+                  .toList(),
+              onChanged: (v) => setState(() => seleccionado = v),
+              decoration: const InputDecoration(
+                  border: OutlineInputBorder(), labelText: "Integrante"),
+            ),
+            const SizedBox(height: 20),
+            TextField(
+              controller: comentarioCtrl,
+              maxLines: 4,
+              decoration: const InputDecoration(
+                  labelText: "Detalle del reporte",
+                  hintText:
+                      "Ej: No ha realizado el pago correspondiente a la fecha...",
+                  border: OutlineInputBorder()),
+            ),
+            const SizedBox(height: 20),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                onPressed: () {
+                  Toast.show("Reporte enviado a administración", context);
+                  Navigator.pop(context);
+                },
+                child: const Text("ENVIAR REPORTE"),
+              ),
+            )
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 class InvitarScreen extends StatelessWidget {
   const InvitarScreen({super.key});
@@ -1200,63 +1762,17 @@ class InvitarScreen extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // QR Generado
-            QrImageView(
-              data: "https://savi.app/unirse/${state.codigoJunta}",
-              version: QrVersions.auto,
-              size: 200.0,
-            ),
+            QrImageView(data: state.codigoJunta, size: 200.0),
             const SizedBox(height: 20),
             Text(state.codigoJunta,
                 style:
-                    const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+                    const TextStyle(fontSize: 30, fontWeight: FontWeight.bold)),
             const SizedBox(height: 20),
             ElevatedButton.icon(
                 icon: const Icon(Icons.share),
-                onPressed: () {
-                  Share.share(
-                      'Únete a mi Junta en SAVI con el código: ${state.codigoJunta} o entra a https://savi.app/unirse/${state.codigoJunta}');
-                },
-                label: const Text("COMPARTIR ENLACE"))
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class ReportarScreen extends StatelessWidget {
-  const ReportarScreen({super.key});
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text("Reportar")),
-      body: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          children: [
-            const Text("Notifica incumplimientos",
-                style: TextStyle(fontSize: 16)),
-            const SizedBox(height: 20),
-            TextField(
-                decoration: InputDecoration(
-                    labelText: "DNI",
-                    border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10)))),
-            const SizedBox(height: 15),
-            TextField(
-                maxLines: 4,
-                decoration: InputDecoration(
-                    labelText: "Reclamo",
-                    border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10)))),
-            const SizedBox(height: 20),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text("ENVIAR REPORTE")),
-            )
+                onPressed: () =>
+                    Share.share("Únete a mi Junta: ${state.codigoJunta}"),
+                label: const Text("COMPARTIR CÓDIGO"))
           ],
         ),
       ),
