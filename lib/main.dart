@@ -85,14 +85,14 @@ class SaviState extends ChangeNotifier {
   String miIdUsuario = "OWNER-001";
 
   // Datos Generales
-  String nombreJunta = "Viaje a Cancún 2026";
-  String montoJunta = "S/ 5,000";
-  int numPersonas = 10;
+  String nombreJunta = "";
+  String montoJunta = "";
+  int numPersonas = 0;
   String periodo = "Mensual";
-  String fechaInicio = "01/03/2026";
-  String fechaFinal = "01/01/2027";
-  String codigoJunta = "SAVI-8823";
-  String dniDueno = "12345678";
+  String fechaInicio = "";
+  String fechaFinal = "";
+  String codigoJunta = "";
+  String dniDueno = "";
 
   List<Integrante> listaCupos = [];
 
@@ -102,26 +102,10 @@ class SaviState extends ChangeNotifier {
 
   // Stats
   double ahorradoTotal = 0.00;
-  int juntasActivas = 1;
+  int juntasActivas = 0;
 
   SaviState() {
-    _inicializarDatosDemo();
-  }
-
-  void _inicializarDatosDemo() {
-    listaCupos.clear();
-    // Dueño siempre es el 1 al inicio
-    listaCupos.add(Integrante(
-      id: "OWNER-001",
-      nombre: 'Luis (Dueño)',
-      usuario: 'Administrador',
-      dni: '12345678',
-      numero: '1',
-      ocupado: true,
-      pagoRealizado: false,
-    ));
-    // Rellenar espacios vacíos
-    redimensionarCupos(10);
+    listaCupos = [];
   }
 
   // --- MÉTODOS DE SIMULACIÓN DE ROL ---
@@ -586,8 +570,12 @@ class _HomeScreenState extends State<HomeScreen> {
     // Barra lateral de depuración para cambiar roles
     return Scaffold(
       appBar: AppBar(
-        title:
-            const Text("SAVI", style: TextStyle(fontWeight: FontWeight.bold)),
+        // CABECERA ACTUALIZADA: Se reemplazó el texto por el logo
+        title: Image.asset(
+          'assets/logo2.png',
+          height: 40,
+          fit: BoxFit.contain,
+        ),
         actions: [
           // SIMULADOR DE ROLES (SOLO DEMO)
           PopupMenuButton<UserRole>(
@@ -709,12 +697,6 @@ class _HomeScreenState extends State<HomeScreen> {
           Row(
             children: [
               Expanded(
-                  child: _buildStatCard(
-                      "Ahorrado Total",
-                      "S/ ${state.ahorradoTotal}",
-                      Icons.account_balance_wallet)),
-              const SizedBox(width: 15),
-              Expanded(
                   child: _buildStatCard("Juntas Activas",
                       "${state.juntasActivas}", Icons.show_chart)),
             ],
@@ -765,9 +747,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // TAB 2: MIS JUNTAS
   Widget _buildTabMisJuntas(SaviState state) {
-    bool estoyEnJunta = state.listaCupos.any((c) => c.id == state.miIdUsuario);
-
-    if (!state.esDueno && !estoyEnJunta) {
+    if (state.juntasActivas == 0) {
       return const Center(
         child: Padding(
           padding: EdgeInsets.all(30.0),
@@ -910,7 +890,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               const SizedBox(height: 15),
               DropdownButtonFormField<String>(
-                value: state.periodo,
+                initialValue: state.periodo,
                 items: ["Mensual", "Quincenal", "Semanal"]
                     .map((e) => DropdownMenuItem(value: e, child: Text(e)))
                     .toList(),
@@ -1396,20 +1376,92 @@ class InfoJuntaScreen extends StatelessWidget {
   }
 
   void _editarPersonas(BuildContext context, SaviState state) {
+    // Variable temporal para manejar el número dentro del diálogo
+    int tempCantidad = state.numPersonas;
+
     showDialog(
-        context: context,
-        builder: (_) => AlertDialog(
-              title: const Text("Editar Cantidad"),
-              content: const Text("Aumentar cupos a 10?"),
+      context: context,
+      builder: (context) {
+        // StatefulBuilder permite actualizar el diálogo sin cerrar y abrir
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              title: const Text("Editar Integrantes"),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text("Ajusta la cantidad de miembros para esta junta."),
+                  const SizedBox(height: 20),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      // BOTÓN REDUCIR (-)
+                      IconButton(
+                        onPressed: tempCantidad > 1
+                            ? () => setState(() => tempCantidad--)
+                            : null, // Se deshabilita si es 1
+                        icon: const Icon(Icons.remove_circle_outline,
+                            color: Colors.red, size: 35),
+                      ),
+                      const SizedBox(width: 20),
+                      // NÚMERO ACTUAL
+                      Text(
+                        "$tempCantidad",
+                        style: const TextStyle(
+                            fontSize: 30, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(width: 20),
+                      // BOTÓN AUMENTAR (+)
+                      IconButton(
+                        onPressed: () {
+                          if (tempCantidad < 10) {
+                            setState(() => tempCantidad++);
+                          } else {
+                            // Mensaje si intenta pasar de 10
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text("Máximo 10 integrantes"),
+                                duration: Duration(seconds: 1),
+                              ),
+                            );
+                          }
+                        },
+                        icon: const Icon(Icons.add_circle_outline,
+                            color: Colors.green, size: 35),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    tempCantidad == 10
+                        ? "Límite máximo alcanzado"
+                        : "Máximo 10",
+                    style: TextStyle(
+                        fontSize: 12,
+                        color: tempCantidad == 10 ? Colors.red : Colors.grey),
+                  )
+                ],
+              ),
               actions: [
                 TextButton(
-                    onPressed: () {
-                      state.redimensionarCupos(10);
-                      Navigator.pop(context);
-                    },
-                    child: const Text("ACEPTAR"))
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text("CANCELAR"),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    // Guardar el cambio final en el estado global
+                    state.redimensionarCupos(tempCantidad);
+                    Navigator.pop(context);
+                    Toast.show("Cantidad actualizada", context);
+                  },
+                  child: const Text("GUARDAR CAMBIOS"),
+                )
               ],
-            ));
+            );
+          },
+        );
+      },
+    );
   }
 
   void _editarFechaFin(BuildContext context, SaviState state) async {
