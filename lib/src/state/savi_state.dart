@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter/foundation.dart';
+import 'dart:async';
 
 import '../../db.dart' as backend;
 import '../parsers/parsers.dart' as parsers;
@@ -55,7 +56,9 @@ class SaviState extends ChangeNotifier {
       supabase.auth.onAuthStateChange.listen((data) {
         try {
           _actualizarDesdeBackend();
-        } catch (e) {}
+        } catch (e) {
+          debugPrint('Auth state change handler error: $e');
+        }
       });
 
       // Cargar estado inicial
@@ -91,32 +94,30 @@ class SaviState extends ChangeNotifier {
 
   // --- AUTENTICACIÓN ---
 
-  Future<void> iniciarSesion(
-      String email, String password, BuildContext context) async {
+  Future<void> iniciarSesion(String email, String password) async {
     try {
       await _backend.iniciarSesion(email, password, (error) {
-        Toast.show(error, context);
+        Toast.show(error, navigatorKey.currentContext);
       });
 
-      if (_backend.currentUser != null && context.mounted) {
-        Navigator.pushReplacementNamed(context, '/home');
+      if (_backend.currentUser != null) {
+        navigatorKey.currentState?.pushReplacementNamed('/home');
       }
     } catch (e) {
       debugPrint("Error en iniciarSesion: $e");
-      Toast.show("Error al iniciar sesión", context);
+      Toast.show("Error al iniciar sesión", navigatorKey.currentContext);
     }
   }
 
-  Future<void> registrarUsuario({
+  Future<bool> registrarUsuario({
     required String email,
     required String password,
     required String nombre,
     required String apellido,
     required String dni,
     required String telefono,
-    required BuildContext context,
-    required Function() onSuccess,
   }) async {
+    final completer = Completer<bool>();
     try {
       await _backend.registrarUsuario(
         email: email,
@@ -125,12 +126,19 @@ class SaviState extends ChangeNotifier {
         apellido: apellido,
         dni: dni,
         telefono: telefono,
-        onError: (error) => Toast.show(error, context),
-        onSuccess: onSuccess,
+        onError: (error) {
+          Toast.show(error, navigatorKey.currentContext);
+          if (!completer.isCompleted) completer.complete(false);
+        },
+        onSuccess: () {
+          if (!completer.isCompleted) completer.complete(true);
+        },
       );
+      return await completer.future;
     } catch (e) {
       debugPrint("Error en registrarUsuario: $e");
-      Toast.show("Error al registrar usuario", context);
+      Toast.show("Error al registrar usuario", navigatorKey.currentContext);
+      return false;
     }
   }
 
@@ -253,7 +261,6 @@ class SaviState extends ChangeNotifier {
     String per,
     String inicio,
     String fin,
-    BuildContext context,
   ) async {
     try {
       await _backend.crearJunta(
@@ -262,29 +269,33 @@ class SaviState extends ChangeNotifier {
         periodo: per,
         inicio: DateFormat('dd/MM/yyyy').parse(inicio),
         cantidad: int.tryParse(cant) ?? 10,
-        onError: (error) => Toast.show(error, context),
+        onError: (error) {
+          Toast.show(error, navigatorKey.currentContext);
+        },
         onSuccess: () {
-          Toast.show("Junta creada exitosamente", context);
+          Toast.show("Junta creada exitosamente", navigatorKey.currentContext);
         },
       );
     } catch (e) {
       debugPrint("Error en crearJunta: $e");
-      Toast.show("Error al crear la junta", context);
+      Toast.show("Error al crear la junta", navigatorKey.currentContext);
     }
   }
 
-  Future<void> unirseAJunta(String codigo, BuildContext context) async {
+  Future<void> unirseAJunta(String codigo) async {
     try {
       await _backend.unirseAJunta(
         codigo,
-        (error) => Toast.show(error, context),
+        (error) {
+          Toast.show(error, navigatorKey.currentContext);
+        },
         () {
-          Toast.show("Solicitud enviada al dueño", context);
+          Toast.show("Solicitud enviada al dueño", navigatorKey.currentContext);
         },
       );
     } catch (e) {
       debugPrint("Error en unirseAJunta: $e");
-      Toast.show("Error al unirse a la junta", context);
+      Toast.show("Error al unirse a la junta", navigatorKey.currentContext);
     }
   }
 
@@ -306,17 +317,13 @@ class SaviState extends ChangeNotifier {
       await cargarParticipantes(juntaSeleccionada!.id);
 
       final ctx = navigatorKey.currentContext;
-      if (ctx != null) {
-        Toast.show("Solicitud aceptada", ctx);
-      }
+      Toast.show("Solicitud aceptada", ctx);
       notifyListeners();
     } catch (e) {
       debugPrint("Error aceptando solicitud: $e");
       backend.checkAndSignOutOnAuthError(e);
       final ctx = navigatorKey.currentContext;
-      if (ctx != null) {
-        Toast.show("Error al aceptar solicitud", ctx);
-      }
+      Toast.show("Error al aceptar solicitud", ctx);
     }
   }
 
@@ -328,17 +335,13 @@ class SaviState extends ChangeNotifier {
 
       solicitudesUnirse.removeWhere((s) => s['id'] == solicitud['id']);
       final ctx = navigatorKey.currentContext;
-      if (ctx != null) {
-        Toast.show("Solicitud rechazada", ctx);
-      }
+      Toast.show("Solicitud rechazada", ctx);
       notifyListeners();
     } catch (e) {
       debugPrint("Error rechazando solicitud: $e");
       backend.checkAndSignOutOnAuthError(e);
       final ctx = navigatorKey.currentContext;
-      if (ctx != null) {
-        Toast.show("Error al rechazar solicitud", ctx);
-      }
+      Toast.show("Error al rechazar solicitud", ctx);
     }
   }
 
@@ -358,16 +361,12 @@ class SaviState extends ChangeNotifier {
       notifyListeners();
 
       final ctx = navigatorKey.currentContext;
-      if (ctx != null) {
-        Toast.show("Pago registrado", ctx);
-      }
+      Toast.show("Pago registrado", ctx);
     } catch (e) {
       debugPrint("Error subiendo voucher: $e");
       backend.checkAndSignOutOnAuthError(e);
       final ctx = navigatorKey.currentContext;
-      if (ctx != null) {
-        Toast.show("Error al subir voucher", ctx);
-      }
+      Toast.show("Error al subir voucher", ctx);
     }
   }
 }

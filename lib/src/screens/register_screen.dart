@@ -244,22 +244,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
   void _handleRegister(BuildContext context, SaviState state) {
     FocusScope.of(context).unfocus();
     setState(() => _loading = true);
-    state
-        .registrarUsuario(
-      email: emailCtrl.text,
-      password: passCtrl.text,
-      nombre: nombreCtrl.text,
-      apellido: apellidoCtrl.text,
-      dni: dniCtrl.text,
-      telefono: telefonoCtrl.text,
-      context: context,
-      onSuccess: () {
+    () async {
+      final success = await state.registrarUsuario(
+        email: emailCtrl.text,
+        password: passCtrl.text,
+        nombre: nombreCtrl.text,
+        apellido: apellidoCtrl.text,
+        dni: dniCtrl.text,
+        telefono: telefonoCtrl.text,
+      );
+      if (mounted) setState(() => _loading = false);
+      if (success && mounted) {
         Toast.show("Registro exitoso. Ya puedes iniciar sesión.", context);
         Navigator.pop(context);
-      },
-    )
-        .whenComplete(() {
-      if (mounted) setState(() => _loading = false);
-    });
+      }
+    }();
   }
 }

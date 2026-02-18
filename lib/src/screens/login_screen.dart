@@ -158,7 +158,7 @@ class _LoginScreenState extends State<LoginScreen> {
     FocusScope.of(context).unfocus();
     setState(() => _loading = true);
     try {
-      await state.iniciarSesion(emailCtrl.text, passCtrl.text, context);
+      await state.iniciarSesion(emailCtrl.text, passCtrl.text);
     } finally {
       if (mounted) setState(() => _loading = false);
     }
