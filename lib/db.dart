@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 // --- ACCESO GLOBAL A LA DB ---
@@ -36,6 +37,26 @@ class JuntaModel {
       codigoAcceso: json['codigo_acceso'],
       creadorId: json['creador_id'],
     );
+  }
+}
+
+// Parser que puede correr en un isolate mediante `compute`
+List<JuntaModel> _parseJuntas(List<dynamic> data) {
+  return data
+      .map((e) => JuntaModel.fromJson(Map<String, dynamic>.from(e)))
+      .toList();
+}
+
+// Función pública para revisar errores de autenticación y forzar signOut
+void checkAndSignOutOnAuthError(Object e) {
+  final s = e.toString();
+  if (s.contains('refresh_token_not_found') ||
+      s.contains('Refresh Token Not Found') ||
+      s.contains('refresh token not found')) {
+    // Intenta cerrar sesión localmente
+    try {
+      Supabase.instance.client.auth.signOut();
+    } catch (_) {}
   }
 }
 
@@ -98,8 +119,10 @@ class SaviState extends ChangeNotifier {
       }
     } on AuthException catch (e) {
       onError(e.message);
+      _checkAndSignOutOnAuthError(e);
     } catch (e) {
       onError("Error inesperado");
+      _checkAndSignOutOnAuthError(e);
     } finally {
       isLoading = false;
       notifyListeners();
@@ -115,8 +138,10 @@ class SaviState extends ChangeNotifier {
       await supabase.auth.signInWithPassword(email: email, password: password);
     } on AuthException catch (_) {
       onError("Credenciales incorrectas");
+      _checkAndSignOutOnAuthError(_);
     } catch (e) {
       onError("Error de conexión");
+      _checkAndSignOutOnAuthError(e);
     } finally {
       isLoading = false;
       notifyListeners();
@@ -168,6 +193,7 @@ class SaviState extends ChangeNotifier {
       onSuccess();
     } catch (e) {
       onError("Error al crear: $e");
+      _checkAndSignOutOnAuthError(e);
     } finally {
       isLoading = false;
       notifyListeners();
@@ -185,18 +211,22 @@ class SaviState extends ChangeNotifier {
       List ids = (parts as List).map((e) => e['junta_id']).toList();
 
       if (ids.isNotEmpty) {
+        // Seleccionar solo columnas necesarias para reducir tamaño de respuesta
         final data = await supabase
             .from('juntas')
-            .select()
+            .select(
+                'id,nombre,monto_cuota,periodo,fecha_inicio,max_participantes,codigo_acceso,creador_id,creado_at')
             .filter('id', 'in', ids)
             .order('creado_at', ascending: false);
-        misJuntas = (data as List).map((e) => JuntaModel.fromJson(e)).toList();
+        // Parsear en un isolate para evitar trabajo en el hilo UI
+        misJuntas = await compute(_parseJuntas, data as List<dynamic>);
       } else {
         misJuntas = [];
       }
       notifyListeners();
     } catch (e) {
       debugPrint("Error carga: $e");
+      _checkAndSignOutOnAuthError(e);
     }
   }
 
@@ -238,6 +268,7 @@ class SaviState extends ChangeNotifier {
       onSuccess();
     } catch (e) {
       onError("Error al unirse: $e");
+      _checkAndSignOutOnAuthError(e);
     } finally {
       isLoading = false;
       notifyListeners();
@@ -245,8 +276,22 @@ class SaviState extends ChangeNotifier {
   }
 
   // --- 6. CERRAR SESIÓN ---
-  void logout() {
-    supabase.auth.signOut();
+  Future<void> logout() async {
+    try {
+      await supabase.auth.signOut();
+    } catch (e) {
+      debugPrint('Error signing out: $e');
+    }
+  }
+
+  void _checkAndSignOutOnAuthError(Object e) {
+    final s = e.toString();
+    if (s.contains('refresh_token_not_found') ||
+        s.contains('Refresh Token Not Found') ||
+        s.contains('refresh token not found')) {
+      // Forzar sign out local si el refresh token no existe/está inválido
+      supabase.auth.signOut();
+    }
   }
 }
 

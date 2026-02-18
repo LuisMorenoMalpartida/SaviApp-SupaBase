@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
-import 'package:savi_app/main.dart';
+import 'package:savi_app/src/app.dart';
+import 'package:savi_app/src/state/savi_state.dart';
 
 void main() {
   testWidgets('SaviApp smoke test', (WidgetTester tester) async {
@@ -16,8 +17,8 @@ void main() {
     // Buscamos el texto de la primera página del PageView
     expect(find.text('Bienvenido a SAVI'), findsOneWidget);
 
-    // Verificar que el botón de "Comenzar Ahora" existe
-    expect(find.text('COMENZAR AHORA'), findsOneWidget);
+    // Verificar que el botón de "Iniciar sesión" existe
+    expect(find.text('Iniciar sesión'), findsOneWidget);
 
     // Nota: No buscamos el contador '0' ni el icono '+' porque esta app no los tiene.
   });
