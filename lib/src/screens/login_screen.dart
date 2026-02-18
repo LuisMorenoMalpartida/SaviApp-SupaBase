@@ -15,11 +15,22 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _loading = false;
 
   @override
+  void initState() {
+    super.initState();
+    emailCtrl.addListener(_onFieldsChanged);
+    passCtrl.addListener(_onFieldsChanged);
+  }
+
+  @override
   void dispose() {
+    emailCtrl.removeListener(_onFieldsChanged);
+    passCtrl.removeListener(_onFieldsChanged);
     emailCtrl.dispose();
     passCtrl.dispose();
     super.dispose();
   }
+
+  void _onFieldsChanged() => setState(() {});
 
   @override
   Widget build(BuildContext context) {
