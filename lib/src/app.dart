@@ -11,6 +11,7 @@ import 'screens/invitar_screen.dart';
 import 'screens/reportar_screen.dart';
 import 'screens/sorteo_screen.dart';
 import 'screens/solicitudes_dueno_screen.dart';
+import 'screens/recuperar_screen.dart';
 
 class SaviApp extends StatelessWidget {
   const SaviApp({super.key});
@@ -35,6 +36,7 @@ class SaviApp extends StatelessWidget {
         '/reportar': (_) => const ReportarScreen(),
         '/sorteo': (_) => const SorteoScreen(),
         '/solicitudes_dueno': (_) => const SolicitudesDuenoScreen(),
+        '/recuperar': (_) => const RecuperarScreen(),
       },
     );
   }
