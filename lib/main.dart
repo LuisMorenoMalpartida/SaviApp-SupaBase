@@ -3,6 +3,10 @@ import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+// Importamos el backend
+import 'backend.dart' as backend;
 
 // --- UTILS ---
 
@@ -13,31 +17,11 @@ class Toast {
   }
 }
 
-// --- DATA MODELS ---
+// --- MODELOS DE DATOS PARA UI ---
 
 enum UserRole { owner, member }
 
-class SolicitudUnirse {
-  String id;
-  String nombre;
-  String apellido;
-  String dni;
-  String telefono;
-  String correo;
-  bool aceptada;
-
-  SolicitudUnirse({
-    required this.id,
-    required this.nombre,
-    required this.apellido,
-    required this.dni,
-    required this.telefono,
-    required this.correo,
-    this.aceptada = false,
-  });
-}
-
-class Integrante {
+class IntegranteUI {
   String id;
   String nombre;
   String usuario; // Rol visible (Admin/Miembro)
@@ -47,8 +31,9 @@ class Integrante {
   String numero; // Número del sorteo
   bool ocupado;
   bool pagoRealizado;
+  String? voucherUrl;
 
-  Integrante({
+  IntegranteUI({
     this.id = '',
     this.nombre = 'Cupo Disponible',
     this.usuario = 'Toque para editar',
@@ -58,33 +43,64 @@ class Integrante {
     this.numero = '',
     this.ocupado = false,
     this.pagoRealizado = false,
+    this.voucherUrl,
   });
 }
 
-class SolicitudIntercambio {
+class SolicitudUnirseUI {
+  final String id;
+  final String usuarioId;
+  final String nombre;
+  final String apellido;
+  final String dni;
+  final String telefono;
+  final String correo;
+  String estado; // 'pendiente', 'aprobada', 'rechazada'
+
+  SolicitudUnirseUI({
+    required this.id,
+    required this.usuarioId,
+    required this.nombre,
+    required this.apellido,
+    required this.dni,
+    required this.telefono,
+    required this.correo,
+    this.estado = 'pendiente',
+  });
+}
+
+class SolicitudIntercambioUI {
+  final String id;
   final String solicitanteId;
   final String solicitanteNombre;
   final String objetivoId;
   final String objetivoNombre;
-  String status; // 'pendiente', 'aprobada', 'rechazada'
+  String estado; // 'pendiente', 'aprobada', 'rechazada'
 
-  SolicitudIntercambio({
+  SolicitudIntercambioUI({
+    required this.id,
     required this.solicitanteId,
     required this.solicitanteNombre,
     required this.objetivoId,
     required this.objetivoNombre,
-    this.status = 'pendiente',
+    this.estado = 'pendiente',
   });
 }
 
-// --- APP STATE (PROVIDER) ---
+// --- APP STATE (PROVIDER) CON BACKEND REAL ---
 
 class SaviState extends ChangeNotifier {
-  // Simulación de Rol
-  UserRole rolActual = UserRole.owner; // Por defecto Dueño
-  String miIdUsuario = "OWNER-001";
+  // Referencia al estado del backend
+  final backend.SaviState _backend = backend.SaviState();
 
-  // Datos Generales
+  // Getter para acceder a Supabase (usando tu supabaseClient)
+  final supabase = backend.supabaseClient;
+
+  // Datos de UI
+  UserRole rolActual = UserRole.member;
+  String miIdUsuario = '';
+
+  // Datos de la junta seleccionada
   String nombreJunta = "";
   String montoJunta = "";
   int numPersonas = 0;
@@ -94,161 +110,408 @@ class SaviState extends ChangeNotifier {
   String codigoJunta = "";
   String dniDueno = "";
 
-  List<Integrante> listaCupos = [];
+  List<IntegranteUI> listaCupos = [];
+  List<SolicitudUnirseUI> solicitudesUnirse = [];
+  List<SolicitudIntercambioUI> solicitudesIntercambio = [];
 
-  // Buzones
-  List<SolicitudUnirse> solicitudesUnirse = [];
-  List<SolicitudIntercambio> solicitudesIntercambio = [];
-
-  // Stats
-  double ahorradoTotal = 0.00;
   int juntasActivas = 0;
+  bool isLoading = false;
+
+  // Getters del backend
+  dynamic get currentUser => _backend.currentUser;
+  bool get esDueno => _backend.esDueno;
+
+  // Lista de juntas del usuario
+  List<backend.JuntaModel> misJuntas = [];
+  backend.JuntaModel? juntaSeleccionada;
 
   SaviState() {
-    listaCupos = [];
+    _init();
   }
 
-  // --- MÉTODOS DE SIMULACIÓN DE ROL ---
-  void cambiarRolSimulado(UserRole nuevoRol) {
-    rolActual = nuevoRol;
-    if (rolActual == UserRole.owner) {
-      miIdUsuario = "OWNER-001";
-    } else {
-      miIdUsuario = "MEMBER-999";
+  Future<void> _init() async {
+    try {
+      // Escuchar cambios en la autenticación de manera segura
+      supabase.auth.onAuthStateChange.listen((data) {
+        try {
+          _actualizarDesdeBackend();
+        } catch (e) {
+          debugPrint("Error en listener auth: $e");
+        }
+      });
+
+      // Cargar estado inicial
+      await _actualizarDesdeBackend();
+    } catch (e) {
+      debugPrint("Error en init: $e");
     }
-    notifyListeners();
   }
 
-  bool get esDueno => rolActual == UserRole.owner;
-
-  // --- GESTIÓN DE LA JUNTA ---
-
-  void redimensionarCupos(int n) {
-    int current = listaCupos.length;
-    if (n > current) {
-      for (int i = 0; i < n - current; i++) {
-        listaCupos.add(Integrante());
+  Future<void> _actualizarDesdeBackend() async {
+    try {
+      if (_backend.currentUser != null) {
+        miIdUsuario = _backend.currentUser!.id;
+        rolActual = _backend.esDueno ? UserRole.owner : UserRole.member;
+        await cargarJuntas();
+      } else {
+        miIdUsuario = '';
+        rolActual = UserRole.member;
+        misJuntas = [];
+        juntaSeleccionada = null;
+        listaCupos = [];
+        solicitudesUnirse = [];
+        juntasActivas = 0;
+        nombreJunta = "";
+        montoJunta = "";
+        codigoJunta = "";
       }
-    } else if (n < current) {
-      listaCupos = listaCupos.sublist(0, n);
+      notifyListeners();
+    } catch (e) {
+      debugPrint("Error en _actualizarDesdeBackend: $e");
     }
-    numPersonas = n;
-    notifyListeners();
   }
 
-  void actualizarFechaFin(String nuevaFecha) {
-    fechaFinal = nuevaFecha;
-    notifyListeners();
+  // --- AUTENTICACIÓN ---
+
+  Future<void> iniciarSesion(
+      String email, String password, BuildContext context) async {
+    try {
+      await _backend.iniciarSesion(email, password, (error) {
+        Toast.show(error, context);
+      });
+
+      if (_backend.currentUser != null && context.mounted) {
+        Navigator.pushReplacementNamed(context, '/home');
+      }
+    } catch (e) {
+      debugPrint("Error en iniciarSesion: $e");
+      Toast.show("Error al iniciar sesión", context);
+    }
   }
 
-  void crearJunta(String nombre, String monto, String cant, String per,
-      String inicio, String fin) {
-    nombreJunta = nombre;
-    String symbol = "S/";
-    montoJunta = "$symbol $monto";
-    numPersonas = int.tryParse(cant) ?? 10;
-    periodo = per;
-    fechaInicio = inicio;
-    fechaFinal = fin;
-
-    listaCupos.clear();
-    listaCupos.add(Integrante(
-        id: miIdUsuario,
-        nombre: 'Tú (Admin)',
-        usuario: 'Administrador',
-        numero: '1',
-        ocupado: true));
-    redimensionarCupos(numPersonas);
-    juntasActivas++;
-    notifyListeners();
-  }
-
-  // --- FLUJO INTEGRANTE: UNIRSE ---
-
-  void enviarSolicitudUnirse(
-      String nom, String ape, String dni, String tel, String mail) {
-    solicitudesUnirse.add(SolicitudUnirse(
-      id: "MEMBER-999",
-      nombre: nom,
-      apellido: ape,
-      dni: dni,
-      telefono: tel,
-      correo: mail,
-    ));
-    notifyListeners();
-  }
-
-  void aceptarSolicitud(SolicitudUnirse solicitud) {
-    int index = listaCupos.indexWhere((c) => !c.ocupado);
-    if (index != -1) {
-      listaCupos[index] = Integrante(
-        id: solicitud.id,
-        nombre: "${solicitud.nombre} ${solicitud.apellido}",
-        usuario: "Miembro",
-        dni: solicitud.dni,
-        telefono: solicitud.telefono,
-        correo: solicitud.correo,
-        numero: (index + 1).toString(),
-        ocupado: true,
+  Future<void> registrarUsuario({
+    required String email,
+    required String password,
+    required String nombre,
+    required String apellido,
+    required String dni,
+    required String telefono,
+    required BuildContext context,
+    required Function() onSuccess,
+  }) async {
+    try {
+      await _backend.registrarUsuario(
+        email: email,
+        password: password,
+        nombre: nombre,
+        apellido: apellido,
+        dni: dni,
+        telefono: telefono,
+        onError: (error) => Toast.show(error, context),
+        onSuccess: onSuccess,
       );
-      solicitud.aceptada = true;
-      solicitudesUnirse.remove(solicitud);
+    } catch (e) {
+      debugPrint("Error en registrarUsuario: $e");
+      Toast.show("Error al registrar usuario", context);
+    }
+  }
+
+  void logout() {
+    try {
+      _backend.logout();
+      final ctx = navigatorKey.currentContext;
+      if (ctx != null) {
+        Toast.show("Sesión cerrada", ctx);
+      }
+    } catch (e) {
+      debugPrint("Error en logout: $e");
+    }
+  }
+
+  // --- GESTIÓN DE JUNTAS ---
+
+  Future<void> cargarJuntas() async {
+    try {
+      await _backend.cargarMisJuntas();
+      misJuntas = _backend.misJuntas;
+      juntasActivas = misJuntas.length;
+      notifyListeners();
+    } catch (e) {
+      debugPrint("Error en cargarJuntas: $e");
+      misJuntas = [];
+      juntasActivas = 0;
       notifyListeners();
     }
   }
 
-  // --- SORTEO E INTERCAMBIO ---
+  Future<void> seleccionarJunta(backend.JuntaModel junta) async {
+    try {
+      juntaSeleccionada = junta;
+      await cargarDetallesJunta(junta.id);
+      notifyListeners();
+    } catch (e) {
+      debugPrint("Error en seleccionarJunta: $e");
+    }
+  }
 
-  void generarSorteoBase() {
-    List<String> numeros =
-        List.generate(numPersonas, (i) => (i + 1).toString());
-    numeros.shuffle();
-    for (int i = 0; i < listaCupos.length; i++) {
-      if (listaCupos[i].ocupado) {
-        listaCupos[i].numero = numeros[i];
+  Future<void> cargarDetallesJunta(String juntaId) async {
+    try {
+      isLoading = true;
+      notifyListeners();
+
+      // Cargar datos básicos de la junta
+      if (juntaSeleccionada != null) {
+        nombreJunta = juntaSeleccionada!.nombre;
+        montoJunta = "S/ ${juntaSeleccionada!.montoCuota.toStringAsFixed(2)}";
+        numPersonas = juntaSeleccionada!.maxParticipantes;
+        periodo = juntaSeleccionada!.periodo;
+        fechaInicio =
+            DateFormat('dd/MM/yyyy').format(juntaSeleccionada!.fechaInicio);
+        codigoJunta = juntaSeleccionada!.codigoAcceso;
+      }
+
+      // Cargar participantes
+      await cargarParticipantes(juntaId);
+
+      // Cargar solicitudes pendientes
+      await cargarSolicitudes(juntaId);
+    } catch (e) {
+      debugPrint("Error cargando detalles: $e");
+    } finally {
+      isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> cargarParticipantes(String juntaId) async {
+    try {
+      final participantes = await supabase.from('participantes').select('''
+            *,
+            perfiles:usuario_id (
+              nombre,
+              apellido,
+              dni,
+              telefono
+            )
+          ''').eq('junta_id', juntaId);
+
+      listaCupos = (participantes as List).map((p) {
+        final perfil = p['perfiles'] ?? {};
+        return IntegranteUI(
+          id: p['usuario_id'],
+          nombre:
+              "${perfil['nombre'] ?? ''} ${perfil['apellido'] ?? ''}".trim(),
+          usuario: p['rol'] == 'dueño' ? 'Administrador' : 'Miembro',
+          dni: perfil['dni'] ?? '',
+          telefono: perfil['telefono'] ?? '',
+          correo: '',
+          numero: p['numero_turno']?.toString() ?? '',
+          ocupado: true,
+          pagoRealizado: p['pago_realizado'] ?? false,
+          voucherUrl: p['voucher_url'],
+        );
+      }).toList();
+
+      // Rellenar cupos disponibles si faltan
+      while (listaCupos.length < numPersonas) {
+        listaCupos.add(IntegranteUI());
+      }
+    } catch (e) {
+      debugPrint("Error cargando participantes: $e");
+      listaCupos = [];
+    }
+  }
+
+  Future<void> cargarSolicitudes(String juntaId) async {
+    try {
+      // Verificar si la tabla solicitudes existe
+      try {
+        final unirse = await supabase.from('solicitudes').select('''
+              *,
+              perfiles:usuario_id (
+                nombre,
+                apellido,
+                dni,
+                telefono
+              )
+            ''').eq('junta_id', juntaId).eq('estado', 'pendiente');
+
+        solicitudesUnirse = (unirse as List).map((s) {
+          final perfil = s['perfiles'] ?? {};
+          return SolicitudUnirseUI(
+            id: s['id'],
+            usuarioId: s['usuario_id'],
+            nombre: perfil['nombre'] ?? '',
+            apellido: perfil['apellido'] ?? '',
+            dni: perfil['dni'] ?? '',
+            telefono: perfil['telefono'] ?? '',
+            correo: '',
+            estado: s['estado'],
+          );
+        }).toList();
+      } catch (e) {
+        // Si la tabla no existe, solo continuamos
+        debugPrint("Tabla solicitudes no disponible: $e");
+        solicitudesUnirse = [];
+      }
+
+      // Solicitudes de intercambio (pendiente de implementar)
+      solicitudesIntercambio = [];
+    } catch (e) {
+      debugPrint("Error cargando solicitudes: $e");
+      solicitudesUnirse = [];
+    }
+  }
+
+  Future<void> crearJunta(
+    String nombre,
+    String monto,
+    String cant,
+    String per,
+    String inicio,
+    String fin,
+    BuildContext context,
+  ) async {
+    try {
+      await _backend.crearJunta(
+        nombre: nombre,
+        monto: double.tryParse(monto) ?? 0,
+        periodo: per,
+        inicio: DateFormat('dd/MM/yyyy').parse(inicio),
+        cantidad: int.tryParse(cant) ?? 10,
+        onError: (error) => Toast.show(error, context),
+        onSuccess: () {
+          cargarJuntas();
+          Toast.show("Junta creada exitosamente", context);
+        },
+      );
+    } catch (e) {
+      debugPrint("Error en crearJunta: $e");
+      Toast.show("Error al crear la junta", context);
+    }
+  }
+
+  Future<void> unirseAJunta(String codigo, BuildContext context) async {
+    try {
+      await _backend.unirseAJunta(
+        codigo,
+        (error) => Toast.show(error, context),
+        () {
+          Toast.show("Solicitud enviada al dueño", context);
+        },
+      );
+    } catch (e) {
+      debugPrint("Error en unirseAJunta: $e");
+      Toast.show("Error al unirse a la junta", context);
+    }
+  }
+
+  // --- SOLICITUDES ---
+
+  Future<void> aceptarSolicitud(SolicitudUnirseUI solicitud) async {
+    try {
+      if (juntaSeleccionada == null) return;
+
+      // Actualizar estado de la solicitud
+      await supabase
+          .from('solicitudes')
+          .update({'estado': 'aprobada'}).eq('id', solicitud.id);
+
+      // Agregar como participante
+      await supabase.from('participantes').insert({
+        'junta_id': juntaSeleccionada!.id,
+        'usuario_id': solicitud.usuarioId,
+        'rol': 'miembro',
+      });
+
+      // Actualizar UI
+      solicitudesUnirse.remove(solicitud);
+      await cargarParticipantes(juntaSeleccionada!.id);
+
+      final ctx = navigatorKey.currentContext;
+      if (ctx != null) {
+        Toast.show("Solicitud aceptada", ctx);
+      }
+      notifyListeners();
+    } catch (e) {
+      debugPrint("Error aceptando solicitud: $e");
+      final ctx = navigatorKey.currentContext;
+      if (ctx != null) {
+        Toast.show("Error al aceptar solicitud", ctx);
       }
     }
-    notifyListeners();
   }
 
-  void solicitarIntercambio(String objetivoId, String objetivoNombre) {
-    var yo = listaCupos.firstWhere((c) => c.id == miIdUsuario,
-        orElse: () => Integrante());
-    solicitudesIntercambio.add(SolicitudIntercambio(
-        solicitanteId: miIdUsuario,
-        solicitanteNombre: yo.nombre,
-        objetivoId: objetivoId,
-        objetivoNombre: objetivoNombre));
-    notifyListeners();
-  }
+  Future<void> rechazarSolicitud(SolicitudUnirseUI solicitud) async {
+    try {
+      await supabase
+          .from('solicitudes')
+          .update({'estado': 'rechazada'}).eq('id', solicitud.id);
 
-  void aprobarIntercambio(SolicitudIntercambio solicitud) {
-    int indexA = listaCupos.indexWhere((c) => c.id == solicitud.solicitanteId);
-    int indexB = listaCupos.indexWhere((c) => c.id == solicitud.objetivoId);
-
-    if (indexA != -1 && indexB != -1) {
-      String tempNum = listaCupos[indexA].numero;
-      listaCupos[indexA].numero = listaCupos[indexB].numero;
-      listaCupos[indexB].numero = tempNum;
-
-      solicitud.status = 'aprobada';
-      solicitudesIntercambio.remove(solicitud);
+      solicitudesUnirse.remove(solicitud);
+      final ctx = navigatorKey.currentContext;
+      if (ctx != null) {
+        Toast.show("Solicitud rechazada", ctx);
+      }
       notifyListeners();
+    } catch (e) {
+      debugPrint("Error rechazando solicitud: $e");
+      final ctx = navigatorKey.currentContext;
+      if (ctx != null) {
+        Toast.show("Error al rechazar solicitud", ctx);
+      }
     }
   }
 
-  void rechazarIntercambio(SolicitudIntercambio solicitud) {
-    solicitudesIntercambio.remove(solicitud);
-    notifyListeners();
-  }
+  // --- PAGOS ---
 
-  void subirVoucher(int index) {
-    listaCupos[index].pagoRealizado = true;
-    notifyListeners();
+  Future<void> subirVoucher(int index, String voucherUrl) async {
+    try {
+      if (juntaSeleccionada == null) return;
+
+      final cupo = listaCupos[index];
+      await supabase
+          .from('participantes')
+          .update({'pago_realizado': true, 'voucher_url': voucherUrl})
+          .eq('junta_id', juntaSeleccionada!.id)
+          .eq('usuario_id', cupo.id);
+
+      cupo.pagoRealizado = true;
+      cupo.voucherUrl = voucherUrl;
+      notifyListeners();
+
+      final ctx = navigatorKey.currentContext;
+      if (ctx != null) {
+        Toast.show("Pago registrado", ctx);
+      }
+    } catch (e) {
+      debugPrint("Error subiendo voucher: $e");
+      final ctx = navigatorKey.currentContext;
+      if (ctx != null) {
+        Toast.show("Error al subir voucher", ctx);
+      }
+    }
   }
 }
 
-void main() {
+// Clave global para navegación
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  try {
+    // Inicializar Supabase con tus credenciales
+    await Supabase.initialize(
+      url: 'https://wwrzudqkzycdgpsdgvnu.supabase.co',
+      anonKey:
+          'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind3cnp1ZHFrenljZGdwc2Rndm51Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzEzNDUxOTEsImV4cCI6MjA4NjkyMTE5MX0.O8K7g1mih8XgzDqTH4tCoGgoPf3aV53h1Fhuz7A7N3c',
+    );
+    debugPrint("✅ Supabase initialized successfully");
+  } catch (e) {
+    debugPrint("❌ Error initializing Supabase: $e");
+  }
+
   runApp(
     ChangeNotifierProvider(
       create: (_) => SaviState(),
@@ -263,6 +526,7 @@ class SaviApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: navigatorKey,
       debugShowCheckedModeBanner: false,
       title: 'SAVI',
       theme: ThemeData(
@@ -281,7 +545,6 @@ class SaviApp extends StatelessWidget {
             foregroundColor: Colors.black,
             elevation: 0,
           )),
-      // INTEGRACIÓN: Ruta inicial vuelve a ser Welcome
       initialRoute: '/welcome',
       routes: {
         '/welcome': (_) => const WelcomeScreen(),
@@ -295,14 +558,12 @@ class SaviApp extends StatelessWidget {
         '/reportar': (_) => const ReportarScreen(),
         '/sorteo': (_) => const SorteoScreen(),
         '/solicitudes_dueno': (_) => const SolicitudesDuenoScreen(),
-        '/form_unirse': (_) => const FormularioUnirseScreen(),
       },
     );
   }
 }
 
-// --- SCREENS ORIGINALES (DISEÑO) ---
-// --- PANTALLA DE BIENVENIDA (CON INDICADORES Y BOTÓN CONDICIONAL) ---
+// --- PANTALLA DE BIENVENIDA ---
 
 class WelcomeScreen extends StatefulWidget {
   const WelcomeScreen({super.key});
@@ -312,7 +573,7 @@ class WelcomeScreen extends StatefulWidget {
 }
 
 class _WelcomeScreenState extends State<WelcomeScreen> {
-  int _currentPage = 0; // Controla en qué página estamos (0, 1 o 2)
+  int _currentPage = 0;
 
   @override
   Widget build(BuildContext context) {
@@ -332,8 +593,6 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
               _buildPage("assets/3.png"),
             ],
           ),
-
-          // Indicadores (Bolitas) y Botón
           Positioned(
             bottom: 40,
             left: 20,
@@ -341,7 +600,6 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Fila de bolitas (Indicadores)
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: List.generate(3, (index) {
@@ -349,28 +607,22 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                       duration: const Duration(milliseconds: 300),
                       margin: const EdgeInsets.symmetric(horizontal: 5),
                       height: 10,
-                      width: _currentPage == index
-                          ? 20
-                          : 10, // Se estira si está activo
+                      width: _currentPage == index ? 20 : 10,
                       decoration: BoxDecoration(
                         color: _currentPage == index
-                            ? const Color(0xFFFF9800) // Naranja activo
-                            : Colors.grey[300], // Gris inactivo
+                            ? const Color(0xFFFF9800)
+                            : Colors.grey[300],
                         borderRadius: BorderRadius.circular(5),
                       ),
                     );
                   }),
                 ),
-
-                const SizedBox(height: 30), // Espacio entre bolitas y botón
-
-                // Botón "COMENZAR AHORA" (Solo visible en la última página, índice 2)
+                const SizedBox(height: 30),
                 _currentPage == 2
                     ? ElevatedButton(
                         style: ElevatedButton.styleFrom(
                             padding: const EdgeInsets.symmetric(vertical: 15),
-                            minimumSize: const Size(
-                                double.infinity, 50), // Ancho completo
+                            minimumSize: const Size(double.infinity, 50),
                             backgroundColor: const Color(0xFFFF9800),
                             foregroundColor: Colors.white,
                             shape: RoundedRectangleBorder(
@@ -381,8 +633,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                             style: TextStyle(
                                 fontSize: 16, fontWeight: FontWeight.bold)),
                       )
-                    : const SizedBox(
-                        height: 50), // Espacio vacío para mantener altura
+                    : const SizedBox(height: 50),
               ],
             ),
           )
@@ -409,90 +660,44 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
   }
 }
 
-// --- PANTALLA DE LOGIN Y REGISTRO (CON LOGO) ---
+// --- PANTALLA DE LOGIN ---
 
-class LoginScreen extends StatelessWidget {
+class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.white,
-      body: Padding(
-        padding: const EdgeInsets.all(30.0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            // REEMPLAZADO: Icono por Logo
-            Image.asset(
-              'assets/logo.png',
-              height: 100, // Ajusta el tamaño según necesites
-              fit: BoxFit.contain,
-              errorBuilder: (context, error, stackTrace) => const Icon(
-                  Icons.savings,
-                  size: 80,
-                  color: Colors.orange), // Respaldo si falla
-            ),
-            const SizedBox(height: 20),
-            const Text("¡Bienvenido Estimado cliente!",
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                textAlign: TextAlign.center),
-            const SizedBox(height: 40),
-            _buildTextField(Icons.person, "Usuario o Correo"),
-            const SizedBox(height: 15),
-            _buildTextField(Icons.lock, "Contraseña", isPassword: true),
-            const SizedBox(height: 30),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 15)),
-                onPressed: () =>
-                    Navigator.pushReplacementNamed(context, '/home'),
-                child: const Text("INICIAR SESIÓN"),
-              ),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pushNamed(context, '/register'),
-              child: const Text("¿No tienes cuenta? Regístrate aquí"),
-            )
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTextField(IconData icon, String hint,
-      {bool isPassword = false}) {
-    return TextField(
-      obscureText: isPassword,
-      decoration: InputDecoration(
-        prefixIcon: Icon(icon, color: Colors.orange),
-        hintText: hint,
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(30)),
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
-      ),
-    );
-  }
+  State<LoginScreen> createState() => _LoginScreenState();
 }
 
-class RegisterScreen extends StatelessWidget {
-  const RegisterScreen({super.key});
+class _LoginScreenState extends State<LoginScreen> {
+  final emailCtrl = TextEditingController();
+  final passCtrl = TextEditingController();
+  final emailFocus = FocusNode();
+  final passFocus = FocusNode();
+
+  @override
+  void dispose() {
+    emailCtrl.dispose();
+    passCtrl.dispose();
+    emailFocus.dispose();
+    passFocus.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
+    final state = Provider.of<SaviState>(context, listen: false);
+
     return Scaffold(
       backgroundColor: Colors.white,
-      // AL CAMBIAR ESTO: Envolvemos el ScrollView en un Center
-      body: Center(
-        child: SingleChildScrollView(
+      body: GestureDetector(
+        // Cerrar teclado al tocar fuera
+        onTap: () => FocusScope.of(context).unfocus(),
+        child: Padding(
           padding: const EdgeInsets.all(30.0),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // No necesitamos el SizedBox grande del principio si ya está centrado
-              // REEMPLAZADO: Icono por Logo
               Image.asset(
                 'assets/logo.png',
                 height: 100,
@@ -501,29 +706,60 @@ class RegisterScreen extends StatelessWidget {
                     const Icon(Icons.savings, size: 80, color: Colors.orange),
               ),
               const SizedBox(height: 20),
-              const Text("Crear Cuenta Nueva",
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+              const Text("¡Bienvenido Estimado cliente!",
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                  textAlign: TextAlign.center),
               const SizedBox(height: 40),
-              _buildTextField(Icons.person, "Nombre Completo"),
+              TextField(
+                controller: emailCtrl,
+                focusNode: emailFocus,
+                textInputAction: TextInputAction.next,
+                onEditingComplete: () {
+                  FocusScope.of(context).requestFocus(passFocus);
+                },
+                decoration: InputDecoration(
+                  prefixIcon: const Icon(Icons.person, color: Colors.orange),
+                  hintText: "Correo Electrónico",
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(30)),
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+                ),
+              ),
               const SizedBox(height: 15),
-              _buildTextField(Icons.email, "Correo Electrónico"),
-              const SizedBox(height: 15),
-              _buildTextField(Icons.phone, "Número de Teléfono"),
-              const SizedBox(height: 15),
-              _buildTextField(Icons.lock, "Contraseña", isPassword: true),
+              TextField(
+                controller: passCtrl,
+                focusNode: passFocus,
+                obscureText: true,
+                textInputAction: TextInputAction.done,
+                onEditingComplete: () {
+                  FocusScope.of(context).unfocus();
+                  _handleLogin(context, state);
+                },
+                decoration: InputDecoration(
+                  prefixIcon: const Icon(Icons.lock, color: Colors.orange),
+                  hintText: "Contraseña",
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(30)),
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+                ),
+              ),
               const SizedBox(height: 30),
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
                   style: ElevatedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 15)),
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text("REGISTRARME AHORA"),
+                  onPressed: () => _handleLogin(context, state),
+                  child: state.isLoading
+                      ? const CircularProgressIndicator(color: Colors.white)
+                      : const Text("INICIAR SESIÓN"),
                 ),
               ),
               TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text("Ya tengo cuenta, Iniciar sesión"),
+                onPressed: () => Navigator.pushNamed(context, '/register'),
+                child: const Text("¿No tienes cuenta? Regístrate aquí"),
               )
             ],
           ),
@@ -532,20 +768,217 @@ class RegisterScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildTextField(IconData icon, String hint,
-      {bool isPassword = false}) {
-    return TextField(
-      obscureText: isPassword,
-      decoration: InputDecoration(
-        prefixIcon: Icon(icon, color: Colors.orange),
-        hintText: hint,
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(30)),
+  void _handleLogin(BuildContext context, SaviState state) {
+    FocusScope.of(context).unfocus(); // Cerrar teclado antes de procesar
+    state.iniciarSesion(emailCtrl.text, passCtrl.text, context);
+  }
+}
+
+// --- PANTALLA DE REGISTRO ---
+
+class RegisterScreen extends StatefulWidget {
+  const RegisterScreen({super.key});
+
+  @override
+  State<RegisterScreen> createState() => _RegisterScreenState();
+}
+
+class _RegisterScreenState extends State<RegisterScreen> {
+  final emailCtrl = TextEditingController();
+  final passCtrl = TextEditingController();
+  final nombreCtrl = TextEditingController();
+  final apellidoCtrl = TextEditingController();
+  final dniCtrl = TextEditingController();
+  final telefonoCtrl = TextEditingController();
+
+  final nombreFocus = FocusNode();
+  final apellidoFocus = FocusNode();
+  final dniFocus = FocusNode();
+  final telefonoFocus = FocusNode();
+  final emailFocus = FocusNode();
+  final passFocus = FocusNode();
+
+  @override
+  void dispose() {
+    emailCtrl.dispose();
+    passCtrl.dispose();
+    nombreCtrl.dispose();
+    apellidoCtrl.dispose();
+    dniCtrl.dispose();
+    telefonoCtrl.dispose();
+    nombreFocus.dispose();
+    apellidoFocus.dispose();
+    dniFocus.dispose();
+    telefonoFocus.dispose();
+    emailFocus.dispose();
+    passFocus.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = Provider.of<SaviState>(context, listen: false);
+
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: GestureDetector(
+        onTap: () => FocusScope.of(context).unfocus(),
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(30.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Image.asset(
+                  'assets/logo.png',
+                  height: 100,
+                  fit: BoxFit.contain,
+                  errorBuilder: (context, error, stackTrace) =>
+                      const Icon(Icons.savings, size: 80, color: Colors.orange),
+                ),
+                const SizedBox(height: 20),
+                const Text("Crear Cuenta Nueva",
+                    style:
+                        TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 40),
+                TextField(
+                  controller: nombreCtrl,
+                  focusNode: nombreFocus,
+                  textInputAction: TextInputAction.next,
+                  onEditingComplete: () {
+                    FocusScope.of(context).requestFocus(apellidoFocus);
+                  },
+                  decoration: InputDecoration(
+                    prefixIcon: const Icon(Icons.person, color: Colors.orange),
+                    hintText: "Nombres",
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(30)),
+                  ),
+                ),
+                const SizedBox(height: 15),
+                TextField(
+                  controller: apellidoCtrl,
+                  focusNode: apellidoFocus,
+                  textInputAction: TextInputAction.next,
+                  onEditingComplete: () {
+                    FocusScope.of(context).requestFocus(dniFocus);
+                  },
+                  decoration: InputDecoration(
+                    prefixIcon:
+                        const Icon(Icons.person_outline, color: Colors.orange),
+                    hintText: "Apellidos",
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(30)),
+                  ),
+                ),
+                const SizedBox(height: 15),
+                TextField(
+                  controller: dniCtrl,
+                  focusNode: dniFocus,
+                  textInputAction: TextInputAction.next,
+                  keyboardType: TextInputType.number,
+                  onEditingComplete: () {
+                    FocusScope.of(context).requestFocus(telefonoFocus);
+                  },
+                  decoration: InputDecoration(
+                    prefixIcon: const Icon(Icons.badge, color: Colors.orange),
+                    hintText: "DNI",
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(30)),
+                  ),
+                ),
+                const SizedBox(height: 15),
+                TextField(
+                  controller: telefonoCtrl,
+                  focusNode: telefonoFocus,
+                  textInputAction: TextInputAction.next,
+                  keyboardType: TextInputType.phone,
+                  onEditingComplete: () {
+                    FocusScope.of(context).requestFocus(emailFocus);
+                  },
+                  decoration: InputDecoration(
+                    prefixIcon: const Icon(Icons.phone, color: Colors.orange),
+                    hintText: "Teléfono",
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(30)),
+                  ),
+                ),
+                const SizedBox(height: 15),
+                TextField(
+                  controller: emailCtrl,
+                  focusNode: emailFocus,
+                  textInputAction: TextInputAction.next,
+                  keyboardType: TextInputType.emailAddress,
+                  onEditingComplete: () {
+                    FocusScope.of(context).requestFocus(passFocus);
+                  },
+                  decoration: InputDecoration(
+                    prefixIcon: const Icon(Icons.email, color: Colors.orange),
+                    hintText: "Correo Electrónico",
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(30)),
+                  ),
+                ),
+                const SizedBox(height: 15),
+                TextField(
+                  controller: passCtrl,
+                  focusNode: passFocus,
+                  obscureText: true,
+                  textInputAction: TextInputAction.done,
+                  onEditingComplete: () {
+                    FocusScope.of(context).unfocus();
+                    _handleRegister(context, state);
+                  },
+                  decoration: InputDecoration(
+                    prefixIcon: const Icon(Icons.lock, color: Colors.orange),
+                    hintText: "Contraseña",
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(30)),
+                  ),
+                ),
+                const SizedBox(height: 30),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 15)),
+                    onPressed: () => _handleRegister(context, state),
+                    child: state.isLoading
+                        ? const CircularProgressIndicator(color: Colors.white)
+                        : const Text("REGISTRARME AHORA"),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text("Ya tengo cuenta, Iniciar sesión"),
+                )
+              ],
+            ),
+          ),
+        ),
       ),
+    );
+  }
+
+  void _handleRegister(BuildContext context, SaviState state) {
+    FocusScope.of(context).unfocus(); // Cerrar teclado antes de procesar
+    state.registrarUsuario(
+      email: emailCtrl.text,
+      password: passCtrl.text,
+      nombre: nombreCtrl.text,
+      apellido: apellidoCtrl.text,
+      dni: dniCtrl.text,
+      telefono: telefonoCtrl.text,
+      context: context,
+      onSuccess: () {
+        Toast.show("Registro exitoso. Ya puedes iniciar sesión.", context);
+        Navigator.pop(context);
+      },
     );
   }
 }
 
-// --- HOME & NUEVA LÓGICA ---
+// --- HOME SCREEN ---
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -556,7 +989,6 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _currentIndex = 0;
 
-  // Controllers para Crear Junta
   final _nombreCtrl = TextEditingController();
   final _montoCtrl = TextEditingController();
   final _cantCtrl = TextEditingController();
@@ -564,38 +996,27 @@ class _HomeScreenState extends State<HomeScreen> {
   final _finCtrl = TextEditingController();
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final state = Provider.of<SaviState>(context, listen: false);
+      state.cargarJuntas();
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     final state = Provider.of<SaviState>(context);
 
-    // Barra lateral de depuración para cambiar roles
     return Scaffold(
       appBar: AppBar(
-        // CABECERA ACTUALIZADA: Se reemplazó el texto por el logo
         title: Image.asset(
           'assets/logo2.png',
           height: 40,
           fit: BoxFit.contain,
         ),
         actions: [
-          // SIMULADOR DE ROLES (SOLO DEMO)
-          PopupMenuButton<UserRole>(
-            icon: const Icon(Icons.switch_account, color: Colors.purple),
-            tooltip: "Simular Rol",
-            onSelected: (role) {
-              state.cambiarRolSimulado(role);
-              Toast.show(
-                  "Rol cambiado a: ${role == UserRole.owner ? 'Dueño' : 'Integrante'}",
-                  context);
-            },
-            itemBuilder: (context) => [
-              const PopupMenuItem(
-                  value: UserRole.owner, child: Text("Ver como DUEÑO")),
-              const PopupMenuItem(
-                  value: UserRole.member, child: Text("Ver como INTEGRANTE")),
-            ],
-          ),
-          // BUZÓN DE SOLICITUDES (Solo Dueño)
-          if (state.esDueno)
+          if (state.esDueno && state.juntaSeleccionada != null)
             Stack(
               children: [
                 IconButton(
@@ -603,8 +1024,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   onPressed: () =>
                       Navigator.pushNamed(context, '/solicitudes_dueno'),
                 ),
-                if (state.solicitudesUnirse.isNotEmpty ||
-                    state.solicitudesIntercambio.isNotEmpty)
+                if (state.solicitudesUnirse.isNotEmpty)
                   Positioned(
                     right: 8,
                     top: 8,
@@ -612,14 +1032,20 @@ class _HomeScreenState extends State<HomeScreen> {
                       padding: const EdgeInsets.all(4),
                       decoration: const BoxDecoration(
                           color: Colors.red, shape: BoxShape.circle),
-                      child: Text(
-                          "${state.solicitudesUnirse.length + state.solicitudesIntercambio.length}",
+                      child: Text("${state.solicitudesUnirse.length}",
                           style: const TextStyle(
                               color: Colors.white, fontSize: 10)),
                     ),
                   )
               ],
-            )
+            ),
+          IconButton(
+            icon: const Icon(Icons.logout, color: Colors.red),
+            onPressed: () {
+              state.logout();
+              Navigator.pushReplacementNamed(context, '/login');
+            },
+          ),
         ],
       ),
       body: _buildBody(state),
@@ -643,6 +1069,10 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildBody(SaviState state) {
+    if (state.isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
     switch (_currentIndex) {
       case 0:
         return _buildTabInicio(state);
@@ -659,7 +1089,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // TAB 1: INICIO (Con diseño original + lógica nueva)
   Widget _buildTabInicio(SaviState state) {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
@@ -680,9 +1109,11 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text("Hola, ${state.esDueno ? 'Luis' : 'Integrante'}",
-                          style: const TextStyle(
-                              fontSize: 20, fontWeight: FontWeight.bold)),
+                      Text(
+                        "Hola, ${state.currentUser?.email?.split('@')[0] ?? 'Usuario'}",
+                        style: const TextStyle(
+                            fontSize: 20, fontWeight: FontWeight.bold),
+                      ),
                       Text(
                           "Rol actual: ${state.esDueno ? 'Organizador' : 'Participante'}",
                           style: const TextStyle(color: Colors.grey)),
@@ -693,7 +1124,6 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
           const SizedBox(height: 20),
-          // Stats Row
           Row(
             children: [
               Expanded(
@@ -745,9 +1175,8 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // TAB 2: MIS JUNTAS
   Widget _buildTabMisJuntas(SaviState state) {
-    if (state.juntasActivas == 0) {
+    if (state.misJuntas.isEmpty) {
       return const Center(
         child: Padding(
           padding: EdgeInsets.all(30.0),
@@ -761,12 +1190,15 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return ListView(
       padding: const EdgeInsets.all(15),
-      children: [
-        Card(
+      children: state.misJuntas.map((junta) {
+        return Card(
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
           child: InkWell(
-            onTap: () => Navigator.pushNamed(context, '/detalles'),
+            onTap: () async {
+              await state.seleccionarJunta(junta);
+              Navigator.pushNamed(context, '/detalles');
+            },
             child: Padding(
               padding: const EdgeInsets.all(15.0),
               child: Row(
@@ -779,11 +1211,11 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(state.nombreJunta,
+                        Text(junta.nombre,
                             style: const TextStyle(
                                 fontWeight: FontWeight.bold, fontSize: 16)),
                         Text(
-                            state.esDueno
+                            junta.creadorId == state.currentUser?.id
                                 ? "Eres el Organizador"
                                 : "Participante",
                             style: const TextStyle(
@@ -791,7 +1223,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       ],
                     ),
                   ),
-                  Text(state.montoJunta,
+                  Text("S/ ${junta.montoCuota.toStringAsFixed(2)}",
                       style: const TextStyle(fontWeight: FontWeight.bold)),
                   const SizedBox(width: 10),
                   const Icon(Icons.arrow_forward_ios,
@@ -800,13 +1232,14 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
           ),
-        )
-      ],
+        );
+      }).toList(),
     );
   }
 
-  // TAB 3: UNIRSE
   Widget _buildTabUnirse(SaviState state) {
+    final codigoCtrl = TextEditingController();
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(25),
       child: Column(
@@ -822,25 +1255,32 @@ class _HomeScreenState extends State<HomeScreen> {
                       style:
                           TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
                   const SizedBox(height: 15),
-                  const TextField(
-                    decoration: InputDecoration(
-                      labelText: "Código de Invitación o Link",
+                  TextField(
+                    controller: codigoCtrl,
+                    decoration: const InputDecoration(
+                      labelText: "Código de Invitación",
                       prefixIcon: Icon(Icons.link),
                       border: OutlineInputBorder(),
                     ),
                   ),
                   const SizedBox(height: 20),
                   ElevatedButton(
-                    onPressed: () {
-                      Navigator.pushNamed(context, '/form_unirse');
+                    onPressed: () async {
+                      if (codigoCtrl.text.isNotEmpty) {
+                        await state.unirseAJunta(codigoCtrl.text, context);
+                      } else {
+                        Toast.show("Ingresa un código", context);
+                      }
                     },
                     style: ElevatedButton.styleFrom(
                         minimumSize: const Size(double.infinity, 50)),
-                    child: const Text("SOY INTEGRANTE (SOLICITAR)"),
+                    child: state.isLoading
+                        ? const CircularProgressIndicator(color: Colors.white)
+                        : const Text("SOLICITAR INGRESO"),
                   ),
                   const SizedBox(height: 10),
                   const Text(
-                      "Al pulsar 'Soy Integrante', deberás llenar tus datos para que el dueño apruebe tu ingreso.",
+                      "Al pulsar 'Solicitar Ingreso', enviarás una solicitud al dueño para que apruebe tu participación.",
                       textAlign: TextAlign.center,
                       style: TextStyle(color: Colors.grey, fontSize: 12)),
                 ],
@@ -852,12 +1292,12 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // TAB 4: CREAR
   Widget _buildTabCrear(SaviState state) {
-    if (!state.esDueno) {
+    if (state.currentUser == null) {
       return const Center(
-          child: Text("Debes ser Dueño/Organizador para crear juntas."));
+          child: Text("Debes iniciar sesión para crear juntas."));
     }
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
       child: Card(
@@ -873,24 +1313,24 @@ class _HomeScreenState extends State<HomeScreen> {
               _buildInput("Nombre de la junta", "Ej: Viaje 2026", _nombreCtrl,
                   Icons.edit),
               const SizedBox(height: 15),
-              _buildInput("Monto Objetivo", "Monto total", _montoCtrl,
+              _buildInput("Monto por Cuota", "Monto por persona", _montoCtrl,
                   Icons.attach_money,
                   isNumber: true),
               const SizedBox(height: 15),
               _buildInput(
-                  "Cantidad Integrantes", "Máx 10", _cantCtrl, Icons.group,
+                  "Cantidad Integrantes", "Máx 20", _cantCtrl, Icons.group,
                   isNumber: true),
               const SizedBox(height: 15),
               Row(
                 children: [
                   Expanded(child: _buildDateInput("Inicio", _inicioCtrl)),
                   const SizedBox(width: 10),
-                  Expanded(child: _buildDateInput("Fin", _finCtrl)),
+                  Expanded(child: _buildDateInput("Fin (opcional)", _finCtrl)),
                 ],
               ),
               const SizedBox(height: 15),
               DropdownButtonFormField<String>(
-                initialValue: state.periodo,
+                value: state.periodo,
                 items: ["Mensual", "Quincenal", "Semanal"]
                     .map((e) => DropdownMenuItem(value: e, child: Text(e)))
                     .toList(),
@@ -907,18 +1347,28 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: ElevatedButton(
                   style: ElevatedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 15)),
-                  onPressed: () {
-                    state.crearJunta(
+                  onPressed: () async {
+                    if (_inicioCtrl.text.isEmpty) {
+                      Toast.show("Selecciona fecha de inicio", context);
+                      return;
+                    }
+
+                    await state.crearJunta(
                         _nombreCtrl.text,
                         _montoCtrl.text,
                         _cantCtrl.text,
                         state.periodo,
                         _inicioCtrl.text,
-                        _finCtrl.text);
-                    setState(() => _currentIndex = 1);
-                    Toast.show("Junta creada exitosamente", context);
+                        _finCtrl.text,
+                        context);
+
+                    if (state.misJuntas.isNotEmpty) {
+                      setState(() => _currentIndex = 1);
+                    }
                   },
-                  child: const Text("CREAR Y PUBLICAR"),
+                  child: state.isLoading
+                      ? const CircularProgressIndicator(color: Colors.white)
+                      : const Text("CREAR Y PUBLICAR"),
                 ),
               )
             ],
@@ -948,12 +1398,17 @@ class _HomeScreenState extends State<HomeScreen> {
       controller: ctrl,
       readOnly: true,
       onTap: () async {
-        DateTime? picked = await showDatePicker(
-            context: context,
-            initialDate: DateTime.now(),
-            firstDate: DateTime(2020),
-            lastDate: DateTime(2030));
-        if (picked != null) ctrl.text = DateFormat('dd/MM/yyyy').format(picked);
+        try {
+          DateTime? picked = await showDatePicker(
+              context: context,
+              initialDate: DateTime.now(),
+              firstDate: DateTime.now(),
+              lastDate: DateTime.now().add(const Duration(days: 365)));
+          if (picked != null)
+            ctrl.text = DateFormat('dd/MM/yyyy').format(picked);
+        } catch (e) {
+          debugPrint("Error seleccionando fecha: $e");
+        }
       },
       decoration: InputDecoration(
         labelText: label,
@@ -964,7 +1419,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // TAB 5: PERFIL
   Widget _buildTabPerfil(SaviState state) {
     return ListView(
       padding: const EdgeInsets.all(20),
@@ -973,7 +1427,7 @@ class _HomeScreenState extends State<HomeScreen> {
         const Icon(Icons.account_circle, size: 100, color: Colors.grey),
         const SizedBox(height: 10),
         Center(
-            child: Text(state.esDueno ? "Luis (Admin)" : "Usuario Miembro",
+            child: Text(state.currentUser?.email ?? "Usuario",
                 style: const TextStyle(
                     fontSize: 20, fontWeight: FontWeight.bold))),
         const SizedBox(height: 30),
@@ -990,7 +1444,10 @@ class _HomeScreenState extends State<HomeScreen> {
         const SizedBox(height: 20),
         ElevatedButton(
           style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-          onPressed: () => Navigator.pushReplacementNamed(context, '/login'),
+          onPressed: () {
+            state.logout();
+            Navigator.pushReplacementNamed(context, '/login');
+          },
           child: const Text("CERRAR SESIÓN",
               style: TextStyle(color: Colors.white)),
         )
@@ -999,135 +1456,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-// --- FORMULARIO UNIRSE (CORREGIDO Y FUNCIONAL) ---
-
-class FormularioUnirseScreen extends StatefulWidget {
-  const FormularioUnirseScreen({super.key});
-
-  @override
-  State<FormularioUnirseScreen> createState() => _FormularioUnirseScreenState();
-}
-
-class _FormularioUnirseScreenState extends State<FormularioUnirseScreen> {
-  final _formKey = GlobalKey<FormState>();
-
-  // Controladores
-  final _dniCtrl = TextEditingController();
-  final _nomCtrl = TextEditingController();
-  final _apeCtrl = TextEditingController();
-  final _telCtrl = TextEditingController();
-  final _mailCtrl = TextEditingController();
-
-  @override
-  Widget build(BuildContext context) {
-    final state = Provider.of<SaviState>(context);
-
-    return Scaffold(
-      appBar: AppBar(title: const Text("Solicitud de Ingreso")),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            children: [
-              const Text(
-                  "Por favor, completa tus datos para enviar la solicitud al organizador.",
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.grey)),
-              const SizedBox(height: 20),
-
-              // CAMPOS DE TEXTO
-              TextFormField(
-                controller: _dniCtrl,
-                decoration: const InputDecoration(
-                    labelText: "DNI", border: OutlineInputBorder()),
-                validator: (v) => (v == null || v.isEmpty) ? "Requerido" : null,
-              ),
-              const SizedBox(height: 15),
-              TextFormField(
-                controller: _nomCtrl,
-                decoration: const InputDecoration(
-                    labelText: "Nombres", border: OutlineInputBorder()),
-                validator: (v) => (v == null || v.isEmpty) ? "Requerido" : null,
-              ),
-              const SizedBox(height: 15),
-              TextFormField(
-                controller: _apeCtrl,
-                decoration: const InputDecoration(
-                    labelText: "Apellidos", border: OutlineInputBorder()),
-                validator: (v) => (v == null || v.isEmpty) ? "Requerido" : null,
-              ),
-              const SizedBox(height: 15),
-              TextFormField(
-                controller: _telCtrl,
-                decoration: const InputDecoration(
-                    labelText: "Celular / WhatsApp",
-                    border: OutlineInputBorder()),
-                validator: (v) => (v == null || v.isEmpty) ? "Requerido" : null,
-              ),
-              const SizedBox(height: 15),
-              TextFormField(
-                controller: _mailCtrl,
-                decoration: const InputDecoration(
-                    labelText: "Correo Electrónico",
-                    border: OutlineInputBorder()),
-                validator: (v) => (v == null || v.isEmpty) ? "Requerido" : null,
-              ),
-              const SizedBox(height: 30),
-
-              // BOTÓN DE ENVÍO
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                    minimumSize: const Size(double.infinity, 50)),
-                onPressed: () {
-                  // 1. Validar formulario de forma segura
-                  if (_formKey.currentState?.validate() ?? false) {
-                    // 2. Enviar datos al Estado (Dueño)
-                    state.enviarSolicitudUnirse(_nomCtrl.text, _apeCtrl.text,
-                        _dniCtrl.text, _telCtrl.text, _mailCtrl.text);
-
-                    // 3. Simular que ahora eres miembro (para esperar aprobación)
-                    state.cambiarRolSimulado(UserRole.member);
-
-                    // 4. Mostrar confirmación y LUEGO cerrar
-                    showDialog(
-                        context: context,
-                        barrierDismissible: false, // Obligar a usar el botón OK
-                        builder: (BuildContext dialogContext) {
-                          return AlertDialog(
-                            title: const Text("Solicitud Enviada"),
-                            content: const Text(
-                                "✅ Tu solicitud ha sido enviada al dueño.\n\n"
-                                "⚠️ PARA PROBAR:\n"
-                                "1. Dale OK abajo.\n"
-                                "2. Cambia tu rol a 'DUEÑO' (Icono Morado arriba).\n"
-                                "3. Revisa la campana de notificaciones."),
-                            actions: [
-                              TextButton(
-                                onPressed: () {
-                                  // Cerrar el diálogo
-                                  Navigator.of(dialogContext).pop();
-                                  // Cerrar la pantalla del formulario
-                                  Navigator.of(context).pop();
-                                },
-                                child: const Text("OK, ENTENDIDO"),
-                              )
-                            ],
-                          );
-                        });
-                  }
-                },
-                child: const Text("ENVIAR SOLICITUD"),
-              )
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// --- BUZÓN DEL DUEÑO (SOLICITUDES) ---
+// --- SOLICITUDES DEL DUEÑO ---
 
 class SolicitudesDuenoScreen extends StatelessWidget {
   const SolicitudesDuenoScreen({super.key});
@@ -1165,51 +1494,31 @@ class SolicitudesDuenoScreen extends StatelessWidget {
                           subtitle:
                               Text("DNI: ${sol.dni}\nQuiere unirse a la junta"),
                           isThreeLine: true,
-                          trailing: IconButton(
-                            icon: const Icon(Icons.check_circle,
-                                color: Colors.green, size: 30),
-                            onPressed: () {
-                              state.aceptarSolicitud(sol);
-                              Toast.show("Solicitud aceptada", context);
-                            },
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-            // TAB INTERCAMBIOS
-            state.solicitudesIntercambio.isEmpty
-                ? const Center(child: Text("No hay solicitudes de intercambio"))
-                : ListView.builder(
-                    itemCount: state.solicitudesIntercambio.length,
-                    itemBuilder: (ctx, i) {
-                      final swap = state.solicitudesIntercambio[i];
-                      return Card(
-                        margin: const EdgeInsets.all(10),
-                        child: ListTile(
-                          title: const Text("Solicitud de Intercambio de N°"),
-                          subtitle: Text(
-                              "${swap.solicitanteNombre} quiere cambiar con ${swap.objetivoNombre}"),
                           trailing: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               IconButton(
-                                icon:
-                                    const Icon(Icons.close, color: Colors.red),
-                                onPressed: () =>
-                                    state.rechazarIntercambio(swap),
+                                icon: const Icon(Icons.close,
+                                    color: Colors.red, size: 30),
+                                onPressed: () {
+                                  state.rechazarSolicitud(sol);
+                                },
                               ),
                               IconButton(
-                                icon: const Icon(Icons.check,
-                                    color: Colors.green),
-                                onPressed: () => state.aprobarIntercambio(swap),
+                                icon: const Icon(Icons.check_circle,
+                                    color: Colors.green, size: 30),
+                                onPressed: () {
+                                  state.aceptarSolicitud(sol);
+                                },
                               ),
                             ],
                           ),
                         ),
                       );
                     },
-                  )
+                  ),
+            // TAB INTERCAMBIOS
+            const Center(child: Text("Módulo de intercambios en desarrollo")),
           ],
         ),
       ),
@@ -1217,13 +1526,20 @@ class SolicitudesDuenoScreen extends StatelessWidget {
   }
 }
 
-// --- DETALLES SCREEN (DASHBOARD) ---
+// --- DETALLES JUNTA SCREEN ---
+
 class DetallesJuntaScreen extends StatelessWidget {
   const DetallesJuntaScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
     final state = Provider.of<SaviState>(context);
+    if (state.juntaSeleccionada == null) {
+      return const Scaffold(
+        body: Center(child: Text("No hay junta seleccionada")),
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(
           title: Text(state.nombreJunta,
@@ -1241,7 +1557,7 @@ class DetallesJuntaScreen extends StatelessWidget {
                   border: Border.all(color: Colors.orange.withOpacity(0.2))),
               child: Column(
                 children: [
-                  const Text("Monto de la junta",
+                  const Text("Cuota por persona",
                       style: TextStyle(color: Colors.grey)),
                   const SizedBox(height: 10),
                   Text(state.montoJunta,
@@ -1253,7 +1569,6 @@ class DetallesJuntaScreen extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 20),
-            // LAS 4 CARDS (Con diseño original)
             GridView.count(
               shrinkWrap: true,
               crossAxisCount: 2,
@@ -1313,14 +1628,20 @@ class DetallesJuntaScreen extends StatelessWidget {
   }
 }
 
-// --- INFO SCREEN (DETALLES ESPECIFICOS CON PERMISOS) ---
+// --- INFO JUNTA SCREEN ---
+
 class InfoJuntaScreen extends StatelessWidget {
   const InfoJuntaScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
     final state = Provider.of<SaviState>(context);
-    final esDueno = state.esDueno;
+
+    if (state.juntaSeleccionada == null) {
+      return const Scaffold(
+        body: Center(child: Text("No hay junta seleccionada")),
+      );
+    }
 
     return Scaffold(
       appBar: AppBar(title: const Text("Detalles de la Junta")),
@@ -1328,7 +1649,7 @@ class InfoJuntaScreen extends StatelessWidget {
         padding: const EdgeInsets.all(20),
         children: [
           _buildInfoCard(
-              "Monto", state.montoJunta, Icons.monetization_on, Colors.orange),
+              "Cuota", state.montoJunta, Icons.monetization_on, Colors.orange),
           const SizedBox(height: 15),
           GridView.count(
             shrinkWrap: true,
@@ -1337,142 +1658,30 @@ class InfoJuntaScreen extends StatelessWidget {
             mainAxisSpacing: 10,
             physics: const NeverScrollableScrollPhysics(),
             children: [
-              // No Editables
               _buildGridItem("Periodo", state.periodo, Icons.access_time,
                   editable: false),
               _buildGridItem("Inicio", state.fechaInicio, Icons.date_range,
                   editable: false),
-
-              // Editables solo por dueño
-              GestureDetector(
-                onTap: esDueno ? () => _editarPersonas(context, state) : null,
-                child: _buildGridItem(
-                    "Personas", "${state.numPersonas} Miembros", Icons.people,
-                    editable: esDueno),
-              ),
-              GestureDetector(
-                onTap: esDueno ? () => _editarFechaFin(context, state) : null,
-                child: _buildGridItem(
-                    "Fin", state.fechaFinal, Icons.event_available,
-                    editable: esDueno),
-              ),
-
-              // Navegación a Sorteo
+              _buildGridItem(
+                  "Personas", "${state.numPersonas} Miembros", Icons.people,
+                  editable: false),
+              _buildGridItem(
+                  "Fin",
+                  state.fechaFinal.isEmpty ? "Por definir" : state.fechaFinal,
+                  Icons.event_available,
+                  editable: false),
               GestureDetector(
                 onTap: () => Navigator.pushNamed(context, '/sorteo'),
                 child: _buildGridItem("Sorteo", "Ver turnos", Icons.shuffle,
                     editable: true, isAction: true),
               ),
-
-              // Info estática
-              _buildGridItem("Validación DNI", "DNI Dueño: ${state.dniDueno}",
-                  Icons.verified_user,
+              _buildGridItem("Código", state.codigoJunta, Icons.qr_code,
                   editable: false),
             ],
           )
         ],
       ),
     );
-  }
-
-  void _editarPersonas(BuildContext context, SaviState state) {
-    // Variable temporal para manejar el número dentro del diálogo
-    int tempCantidad = state.numPersonas;
-
-    showDialog(
-      context: context,
-      builder: (context) {
-        // StatefulBuilder permite actualizar el diálogo sin cerrar y abrir
-        return StatefulBuilder(
-          builder: (context, setState) {
-            return AlertDialog(
-              title: const Text("Editar Integrantes"),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text("Ajusta la cantidad de miembros para esta junta."),
-                  const SizedBox(height: 20),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      // BOTÓN REDUCIR (-)
-                      IconButton(
-                        onPressed: tempCantidad > 1
-                            ? () => setState(() => tempCantidad--)
-                            : null, // Se deshabilita si es 1
-                        icon: const Icon(Icons.remove_circle_outline,
-                            color: Colors.red, size: 35),
-                      ),
-                      const SizedBox(width: 20),
-                      // NÚMERO ACTUAL
-                      Text(
-                        "$tempCantidad",
-                        style: const TextStyle(
-                            fontSize: 30, fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(width: 20),
-                      // BOTÓN AUMENTAR (+)
-                      IconButton(
-                        onPressed: () {
-                          if (tempCantidad < 10) {
-                            setState(() => tempCantidad++);
-                          } else {
-                            // Mensaje si intenta pasar de 10
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text("Máximo 10 integrantes"),
-                                duration: Duration(seconds: 1),
-                              ),
-                            );
-                          }
-                        },
-                        icon: const Icon(Icons.add_circle_outline,
-                            color: Colors.green, size: 35),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  Text(
-                    tempCantidad == 10
-                        ? "Límite máximo alcanzado"
-                        : "Máximo 10",
-                    style: TextStyle(
-                        fontSize: 12,
-                        color: tempCantidad == 10 ? Colors.red : Colors.grey),
-                  )
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text("CANCELAR"),
-                ),
-                ElevatedButton(
-                  onPressed: () {
-                    // Guardar el cambio final en el estado global
-                    state.redimensionarCupos(tempCantidad);
-                    Navigator.pop(context);
-                    Toast.show("Cantidad actualizada", context);
-                  },
-                  child: const Text("GUARDAR CAMBIOS"),
-                )
-              ],
-            );
-          },
-        );
-      },
-    );
-  }
-
-  void _editarFechaFin(BuildContext context, SaviState state) async {
-    DateTime? picked = await showDatePicker(
-        context: context,
-        initialDate: DateTime.now(),
-        firstDate: DateTime.now(),
-        lastDate: DateTime(2030));
-    if (picked != null) {
-      state.actualizarFechaFin(DateFormat('dd/MM/yyyy').format(picked));
-    }
   }
 
   Widget _buildInfoCard(String title, String val, IconData icon, Color color) {
@@ -1515,11 +1724,6 @@ class InfoJuntaScreen extends StatelessWidget {
               ],
             ),
           ),
-          if (editable && !isAction)
-            const Positioned(
-                right: 8,
-                top: 8,
-                child: Icon(Icons.edit, size: 16, color: Colors.grey)),
           if (isAction)
             const Positioned(
                 right: 8,
@@ -1532,6 +1736,7 @@ class InfoJuntaScreen extends StatelessWidget {
 }
 
 // --- SORTEO SCREEN ---
+
 class SorteoScreen extends StatelessWidget {
   const SorteoScreen({super.key});
 
@@ -1552,8 +1757,7 @@ class SorteoScreen extends StatelessWidget {
                 children: [
                   _botonDueno(Icons.casino, "REALIZAR SORTEO", Colors.orange,
                       () {
-                    state.generarSorteoBase();
-                    Toast.show("Sorteo realizado", context);
+                    Toast.show("Función en desarrollo", context);
                   }),
                   const SizedBox(height: 10),
                   _botonDueno(
@@ -1562,12 +1766,6 @@ class SorteoScreen extends StatelessWidget {
                       Colors.blue,
                       () => Navigator.pushNamed(context, '/solicitudes_dueno')),
                   const SizedBox(height: 10),
-                  _botonDueno(
-                      Icons.verified_user,
-                      "VALIDACIÓN DNI",
-                      Colors.green,
-                      () => Toast.show(
-                          "Todos los DNI validados correctamente", context)),
                 ],
               ),
             ),
@@ -1582,8 +1780,8 @@ class SorteoScreen extends StatelessWidget {
                   Icon(Icons.info_outline, color: Colors.blue),
                   SizedBox(width: 10),
                   Expanded(
-                      child: Text(
-                          "Toca a un compañero para solicitar intercambio de número."))
+                      child:
+                          Text("Los números se asignan al iniciar la junta."))
                 ]),
               ),
             )
@@ -1609,11 +1807,7 @@ class SorteoScreen extends StatelessWidget {
                     ),
                     title: Text(c.nombre + (soyYo ? " (Tú)" : "")),
                     subtitle: Text(c.ocupado ? "Miembro" : "Disponible"),
-                    onTap: (!esDueno && !soyYo && c.ocupado)
-                        ? () {
-                            _dialogSolicitarCambio(context, state, c);
-                          }
-                        : null,
+                    onTap: null,
                   ),
                 );
               },
@@ -1638,38 +1832,17 @@ class SorteoScreen extends StatelessWidget {
       onPressed: onTap,
     );
   }
-
-  void _dialogSolicitarCambio(
-      BuildContext context, SaviState state, Integrante objetivo) {
-    showDialog(
-        context: context,
-        builder: (_) => AlertDialog(
-              title: const Text("Solicitar Intercambio"),
-              content: Text(
-                  "¿Deseas enviar una solicitud al dueño para cambiar tu número con ${objetivo.nombre}?"),
-              actions: [
-                TextButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: const Text("CANCELAR")),
-                ElevatedButton(
-                    onPressed: () {
-                      state.solicitarIntercambio(objetivo.id, objetivo.nombre);
-                      Navigator.pop(context);
-                      Toast.show("Solicitud enviada al dueño", context);
-                    },
-                    child: const Text("ENVIAR"))
-              ],
-            ));
-  }
 }
 
-// --- INTEGRANTES & PAGOS ---
+// --- INTEGRANTES Y PAGOS SCREEN ---
 
 class IntegrantesPagosScreen extends StatelessWidget {
   const IntegrantesPagosScreen({super.key});
+
   @override
   Widget build(BuildContext context) {
     final state = Provider.of<SaviState>(context);
+
     return Scaffold(
       appBar: AppBar(title: const Text("Estado de Pagos")),
       body: GridView.builder(
@@ -1699,7 +1872,8 @@ class IntegrantesPagosScreen extends StatelessWidget {
                 const SizedBox(height: 10),
                 Text(cupo.nombre,
                     style: const TextStyle(fontWeight: FontWeight.bold),
-                    maxLines: 1),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis),
                 if (cupo.pagoRealizado)
                   const Text("PAGADO",
                       style: TextStyle(
@@ -1717,13 +1891,16 @@ class IntegrantesPagosScreen extends StatelessWidget {
                   ElevatedButton(
                     style: ElevatedButton.styleFrom(
                         minimumSize: const Size(80, 30)),
-                    onPressed: () => state.subirVoucher(index),
+                    onPressed: () =>
+                        _mostrarSubirVoucher(context, state, index),
                     child: const Text("SUBIR PAGO",
                         style: TextStyle(fontSize: 10)),
                   ),
-                if (cupo.pagoRealizado)
+                if (cupo.pagoRealizado && cupo.voucherUrl != null)
                   TextButton(
-                      onPressed: () {},
+                      onPressed: () {
+                        Toast.show("Voucher: ${cupo.voucherUrl}", context);
+                      },
                       child: const Text("Ver Voucher",
                           style: TextStyle(fontSize: 10)))
               ],
@@ -1733,9 +1910,36 @@ class IntegrantesPagosScreen extends StatelessWidget {
       ),
     );
   }
+
+  void _mostrarSubirVoucher(BuildContext context, SaviState state, int index) {
+    // Por ahora simulamos la subida
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Subir Voucher"),
+        content: const Text(
+            "Simulación: En una app real, aquí seleccionarías una imagen"),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Cancelar"),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              // Simulamos una URL
+              state.subirVoucher(index,
+                  "voucher_${DateTime.now().millisecondsSinceEpoch}.jpg");
+              Navigator.pop(context);
+            },
+            child: const Text("Subir"),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
-// --- REPORTAR & INVITAR ---
+// --- REPORTAR SCREEN ---
 
 class ReportarScreen extends StatefulWidget {
   const ReportarScreen({super.key});
@@ -1803,8 +2007,11 @@ class _ReportarScreenState extends State<ReportarScreen> {
   }
 }
 
+// --- INVITAR SCREEN ---
+
 class InvitarScreen extends StatelessWidget {
   const InvitarScreen({super.key});
+
   @override
   Widget build(BuildContext context) {
     final state = Provider.of<SaviState>(context);
@@ -1814,16 +2021,26 @@ class InvitarScreen extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            QrImageView(data: state.codigoJunta, size: 200.0),
+            if (state.codigoJunta.isNotEmpty)
+              QrImageView(data: state.codigoJunta, size: 200.0)
+            else
+              Container(
+                width: 200,
+                height: 200,
+                color: Colors.grey[200],
+                child: const Center(child: Text("Sin código")),
+              ),
             const SizedBox(height: 20),
-            Text(state.codigoJunta,
+            Text(state.codigoJunta.isEmpty ? "Sin código" : state.codigoJunta,
                 style:
                     const TextStyle(fontSize: 30, fontWeight: FontWeight.bold)),
             const SizedBox(height: 20),
             ElevatedButton.icon(
                 icon: const Icon(Icons.share),
-                onPressed: () =>
-                    Share.share("Únete a mi Junta: ${state.codigoJunta}"),
+                onPressed: state.codigoJunta.isNotEmpty
+                    ? () => Share.share(
+                        "Únete a mi Junta en SAVI con el código: ${state.codigoJunta}")
+                    : null,
                 label: const Text("COMPARTIR CÓDIGO"))
           ],
         ),
