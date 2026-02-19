@@ -38,8 +38,7 @@ class _DetallesJuntaScreenState extends State<DetallesJuntaScreen> {
             if (Navigator.canPop(context)) Navigator.pop(context);
           },
         ),
-        title:
-            Text(state.nombreJunta.isNotEmpty ? state.nombreJunta : 'Detalles'),
+        title: Text(state.nombreJunta.isNotEmpty ? state.nombreJunta : 'Detalles'),
         elevation: 0,
         backgroundColor: Colors.white,
         foregroundColor: Colors.deepOrange,
@@ -50,57 +49,93 @@ class _DetallesJuntaScreenState extends State<DetallesJuntaScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Header: Organizador + Monto
-              Row(
-                children: [
-                  Expanded(
-                    child: Text('Organizador:',
-                        style: Theme.of(context)
-                            .textTheme
-                            .titleLarge
-                            ?.copyWith(color: Colors.deepOrange)),
-                  ),
-                  // small avatar icon top-right
-                  CircleAvatar(
-                    radius: 18,
-                    backgroundColor: Colors.transparent,
-                    child: IconButton(
-                      icon: const Icon(Icons.handshake_rounded),
-                      onPressed: () {},
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-
-              // Monto centered
-              Center(
+              // Organizer card
+              RepaintBoundary(
                 child: Container(
-                  padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: Colors.orange.shade50,
+                    color: Colors.white,
                     borderRadius: BorderRadius.circular(12),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.03),
+                        blurRadius: 6,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: Colors.deepPurple.shade50,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Center(
+                          child: Text(
+                            (state.perfilNombre.isNotEmpty ? state.perfilNombre[0] : 'U').toUpperCase(),
+                            style: TextStyle(
+                                color: Colors.deepPurple.shade700,
+                                fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(state.perfilNombre.isNotEmpty
+                                ? '${state.perfilNombre} ${state.perfilApellido}'.trim()
+                                : 'Usuario Principal'),
+                            const SizedBox(height: 4),
+                            Text('Creador de la junta', style: TextStyle(color: Colors.black.withOpacity(0.56))),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 16),
+
+              // Large amount card with gradient
+              RepaintBoundary(
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(18),
+                    gradient: LinearGradient(
+                      colors: [Colors.deepOrange.shade400, Colors.orange.shade300],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.deepOrange.shade100.withOpacity(0.45),
+                        blurRadius: 8,
+                        offset: const Offset(0, 6),
+                      )
+                    ],
                   ),
                   child: Column(
-                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('Monto de la junta',
-                          style: TextStyle(fontWeight: FontWeight.w600)),
-                      const SizedBox(height: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 20, vertical: 8),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.orange.shade200),
-                          color: Colors.white,
-                        ),
-                        child: Text(state.montoJunta,
-                            style: Theme.of(context)
-                                .textTheme
-                                .headlineSmall
-                                ?.copyWith(fontWeight: FontWeight.bold)),
+                      Row(
+                        children: [
+                          const Icon(Icons.show_chart, color: Colors.white70, size: 18),
+                          const SizedBox(width: 8),
+                          Text('Monto de la junta', style: TextStyle(color: Colors.white70)),
+                        ],
                       ),
+                      const SizedBox(height: 12),
+                      Text(state.montoJunta, style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 6),
+                      Text('Total acumulado', style: TextStyle(color: Colors.white70)),
                     ],
                   ),
                 ),
@@ -108,58 +143,71 @@ class _DetallesJuntaScreenState extends State<DetallesJuntaScreen> {
 
               const SizedBox(height: 20),
 
-              // Responsive grid of cards using Wrap to avoid overflow
+              // Grid of feature cards (fixed height to keep uniform sizes)
               LayoutBuilder(builder: (context, constraints) {
-                final double spacing = 16;
-                final double totalSpacing = spacing; // between two columns
-                final double cardWidth =
-                    (constraints.maxWidth - totalSpacing) / 2;
+                final double spacing = 14;
+                final double cardWidth = (constraints.maxWidth - spacing) / 2;
+                // increase card height to avoid content overflow on small devices
+                final double cardHeight = cardWidth * 0.9; // slightly taller
                 return Wrap(
                   spacing: spacing,
                   runSpacing: spacing,
                   children: [
                     SizedBox(
                       width: cardWidth,
-                      child: _buildCard(
-                        context,
-                        title: 'Detalles',
-                        subtitle:
-                            'Consulta aquí todos los detalles de tu junta.',
-                        icon: Icons.article_outlined,
-                        onTap: () {},
+                      height: cardHeight,
+                      child: RepaintBoundary(
+                        child: _featureCard(
+                          context,
+                          title: 'Detalles',
+                          subtitle: 'Consulta para recibir los detalles de tu junta',
+                          icon: Icons.article_outlined,
+                          color: Colors.blue.shade50,
+                          iconColor: Colors.blue.shade700,
+                        ),
                       ),
                     ),
                     SizedBox(
                       width: cardWidth,
-                      child: _buildCard(
-                        context,
-                        title: 'Invitar más amigos',
-                        subtitle:
-                            'Invita a tus amigos compartiendo tu ID de usuario.',
-                        icon: Icons.qr_code_scanner,
-                        onTap: () {},
+                      height: cardHeight,
+                      child: RepaintBoundary(
+                        child: _featureCard(
+                          context,
+                          title: 'Invitar más amigos',
+                          subtitle: 'Comparte tu junta con tus amigos de confianza',
+                          icon: Icons.person_add,
+                          color: Colors.green.shade50,
+                          iconColor: Colors.green.shade700,
+                        ),
                       ),
                     ),
                     SizedBox(
                       width: cardWidth,
-                      child: _buildCard(
-                        context,
-                        title: 'Integrantes y pagos',
-                        subtitle:
-                            'Registra en tiempo real los pagos de cada integrante.',
-                        icon: Icons.list_alt,
-                        onTap: () => Navigator.pushNamed(context, '/pagos'),
+                      height: cardHeight,
+                      child: RepaintBoundary(
+                        child: _featureCard(
+                          context,
+                          title: 'Integrantes y pagos',
+                          subtitle: 'Registra los tiempos hasta los pagos de cada usuario',
+                          icon: Icons.group,
+                          color: Colors.yellow.shade50,
+                          iconColor: Colors.amber.shade700,
+                          onTap: () => Navigator.pushNamed(context, '/pagos'),
+                        ),
                       ),
                     ),
                     SizedBox(
                       width: cardWidth,
-                      child: _buildCard(
-                        context,
-                        title: 'Reportar',
-                        subtitle:
-                            'Informa sobre cualquier integrante que no cumpla con su cuota.',
-                        icon: Icons.report_problem_outlined,
-                        onTap: () {},
+                      height: cardHeight,
+                      child: RepaintBoundary(
+                        child: _featureCard(
+                          context,
+                          title: 'Reportar',
+                          subtitle: 'Informa sobre cualquier miembro que incumple la cuota',
+                          icon: Icons.flag,
+                          color: Colors.red.shade50,
+                          iconColor: Colors.red.shade700,
+                        ),
                       ),
                     ),
                   ],
@@ -183,54 +231,46 @@ class _DetallesJuntaScreenState extends State<DetallesJuntaScreen> {
     );
   }
 
-  Widget _buildCard(BuildContext context,
+  Widget _featureCard(BuildContext context,
       {required String title,
       required String subtitle,
       required IconData icon,
-      required VoidCallback onTap}) {
+      Color? color,
+      Color? iconColor,
+      VoidCallback? onTap}) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(12),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.06),
+              color: Colors.black.withOpacity(0.035),
               blurRadius: 6,
-              offset: const Offset(0, 3),
+              offset: const Offset(0, 4),
             )
           ],
         ),
-        child: Row(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Container(
-              padding: const EdgeInsets.all(8),
+              padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: Colors.orange.shade50,
-                borderRadius: BorderRadius.circular(8),
+                color: color ?? Colors.orange.shade50,
+                borderRadius: BorderRadius.circular(10),
               ),
-              child: Icon(icon, size: 28, color: Colors.deepOrange),
+              child: Icon(icon, size: 28, color: iconColor ?? Colors.deepOrange),
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(title,
-                      style: const TextStyle(fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 6),
-                  Text(
-                    subtitle,
-                    style: Theme.of(context).textTheme.bodySmall,
-                    maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
-            ),
+            const SizedBox(height: 12),
+            Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 6),
+            Text(subtitle,
+              style: Theme.of(context).textTheme.bodySmall,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis),
           ],
         ),
       ),

@@ -59,6 +59,8 @@ class SaviState extends ChangeNotifier {
 
   Future<void> _init() async {
     try {
+      debugPrint(
+          '[SaviState] _init start: ${DateTime.now().toIso8601String()}');
       // Escuchar cambios en la autenticación de manera segura
       supabase.auth.onAuthStateChange.listen((data) {
         try {
@@ -70,6 +72,8 @@ class SaviState extends ChangeNotifier {
 
       // Cargar estado inicial
       await _actualizarDesdeBackend();
+      debugPrint(
+          '[SaviState] _init finished _actualizar: ${DateTime.now().toIso8601String()}');
     } catch (e) {
       debugPrint("Error en init: $e");
     }
@@ -77,6 +81,8 @@ class SaviState extends ChangeNotifier {
 
   Future<void> _actualizarDesdeBackend() async {
     try {
+      debugPrint(
+          '[SaviState] _actualizarDesdeBackend start: ${DateTime.now().toIso8601String()} currentUser=${_backend.currentUser?.id}');
       if (_backend.currentUser != null) {
         miIdUsuario = _backend.currentUser!.id;
         rolActual = _backend.esDueno ? UserRole.owner : UserRole.member;
@@ -94,6 +100,8 @@ class SaviState extends ChangeNotifier {
         montoJunta = "";
         codigoJunta = "";
       }
+      debugPrint(
+          '[SaviState] _actualizarDesdeBackend finished: ${DateTime.now().toIso8601String()}');
       notifyListeners();
     } catch (e) {
       debugPrint("Error en _actualizarDesdeBackend: $e");
@@ -103,6 +111,8 @@ class SaviState extends ChangeNotifier {
   // --- PERFIL ---
   Future<void> cargarPerfil() async {
     try {
+      debugPrint(
+          '[SaviState] cargarPerfil start: ${DateTime.now().toIso8601String()} user=$miIdUsuario');
       if (miIdUsuario.isEmpty) return;
       final perfil = await _backend.obtenerPerfil(miIdUsuario);
       if (perfil != null) {
@@ -112,6 +122,8 @@ class SaviState extends ChangeNotifier {
         perfilTelefono = perfil['telefono'] ?? '';
         perfilAvatar = perfil['avatar_url'] ?? '';
       }
+      debugPrint(
+          '[SaviState] cargarPerfil finished: ${DateTime.now().toIso8601String()}');
       notifyListeners();
     } catch (e) {
       debugPrint('Error cargando perfil: $e');

@@ -32,7 +32,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final state = Provider.of<SaviState>(context);
+    final state = Provider.of<SaviState>(context, listen: false);
 
     return Scaffold(
       appBar: AppBar(
@@ -91,7 +91,7 @@ class _HomeScreenState extends State<HomeScreen> {
           _greetingCard(state),
           const SizedBox(height: 12),
 
-          // Summary card (Juntas activas)
+          // Summary card (Juntas activas) - listen only to juntasActivas
           Card(
             child: Padding(
               padding: const EdgeInsets.all(12.0),
@@ -103,7 +103,11 @@ class _HomeScreenState extends State<HomeScreen> {
                     children: [
                       Text('Juntas activas',
                           style: Theme.of(context).textTheme.titleSmall),
-                      Text('${state.juntasActivas}')
+                      Selector<SaviState, int>(
+                        selector: (_, s) => s.juntasActivas,
+                        builder: (_, juntasActivas, __) =>
+                            Text('$juntasActivas'),
+                      ),
                     ],
                   ),
                   const SizedBox.shrink(),
@@ -142,26 +146,29 @@ class _HomeScreenState extends State<HomeScreen> {
 
           // Only this list scrolls
           Expanded(
-            child: state.misJuntas.isEmpty
-                ? const Center(child: Text('Aún no tienes juntas'))
-                : ListView.separated(
-                    itemCount: state.misJuntas.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 8),
-                    itemBuilder: (ctx, i) {
-                      final junta = state.misJuntas[i];
-                      return Card(
-                        child: ListTile(
-                          title: Text(junta.nombre),
-                          subtitle: Text(
-                              'Cuota: S/ ${junta.montoCuota.toStringAsFixed(2)}'),
-                          onTap: () async {
-                            await state.seleccionarJunta(junta);
-                            Navigator.pushNamed(context, '/detalles');
-                          },
-                        ),
-                      );
-                    },
-                  ),
+            child: Consumer<SaviState>(builder: (ctx, s, _) {
+              final list = s.misJuntas;
+              if (list.isEmpty)
+                return const Center(child: Text('Aún no tienes juntas'));
+              return ListView.separated(
+                itemCount: list.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 8),
+                itemBuilder: (ctx, i) {
+                  final junta = list[i];
+                  return Card(
+                    child: ListTile(
+                      title: Text(junta.nombre),
+                      subtitle: Text(
+                          'Cuota: S/ ${junta.montoCuota.toStringAsFixed(2)}'),
+                      onTap: () async {
+                        await s.seleccionarJunta(junta);
+                        Navigator.pushNamed(context, '/detalles');
+                      },
+                    ),
+                  );
+                },
+              );
+            }),
           ),
         ],
       ),

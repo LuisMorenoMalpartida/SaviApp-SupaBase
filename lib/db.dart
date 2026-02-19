@@ -1,4 +1,3 @@
-import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 //import 'dart:io';
@@ -55,10 +54,14 @@ void checkAndSignOutOnAuthError(Object e) {
   if (s.contains('refresh_token_not_found') ||
       s.contains('Refresh Token Not Found') ||
       s.contains('refresh token not found')) {
-    // Intenta cerrar sesión localmente
+    // Intenta cerrar sesión localmente y loguea la causa para diagnóstico
     try {
+      debugPrint(
+          '[backend] checkAndSignOutOnAuthError matched, signing out. error="$s"');
       Supabase.instance.client.auth.signOut();
-    } catch (_) {}
+    } catch (err) {
+      debugPrint('[backend] signOut failed: $err');
+    }
   }
 }
 
@@ -71,6 +74,8 @@ class SaviState extends ChangeNotifier {
 
   SaviState() {
     // Escuchar cambios de sesión en tiempo real
+    debugPrint(
+        '[backend.SaviState] constructor start: ${DateTime.now().toIso8601String()}');
     supabase.auth.onAuthStateChange.listen((data) {
       final session = data.session;
       if (session != null) {
@@ -82,6 +87,8 @@ class SaviState extends ChangeNotifier {
       }
       notifyListeners();
     });
+    debugPrint(
+        '[backend.SaviState] constructor end: ${DateTime.now().toIso8601String()}');
   }
 
   // GETTER: ¿Soy el dueño de la junta seleccionada?
@@ -208,6 +215,8 @@ class SaviState extends ChangeNotifier {
   Future<void> cargarMisJuntas() async {
     if (currentUser == null) return;
     try {
+      debugPrint(
+          '[backend.SaviState] cargarMisJuntas start: ${DateTime.now().toIso8601String()} user=${currentUser?.id}');
       final parts = await supabase
           .from('participantes')
           .select('junta_id')
@@ -227,6 +236,8 @@ class SaviState extends ChangeNotifier {
       } else {
         misJuntas = [];
       }
+      debugPrint(
+          '[backend.SaviState] cargarMisJuntas finished: ${DateTime.now().toIso8601String()} count=${misJuntas.length}');
       notifyListeners();
     } catch (e) {
       debugPrint("Error carga: $e");
@@ -402,7 +413,14 @@ class SaviState extends ChangeNotifier {
         s.contains('Refresh Token Not Found') ||
         s.contains('refresh token not found')) {
       // Forzar sign out local si el refresh token no existe/está inválido
-      supabase.auth.signOut();
+      try {
+        debugPrint(
+            '[backend] _checkAndSignOutOnAuthError matched, signing out. error="$s"');
+        supabase.auth.signOut();
+      } catch (err) {
+        debugPrint(
+            '[backend] _checkAndSignOutOnAuthError signOut failed: $err');
+      }
     }
   }
 }

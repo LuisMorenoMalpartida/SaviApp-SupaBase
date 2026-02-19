@@ -25,7 +25,7 @@ class _PerfilTabState extends State<PerfilTab> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final state = Provider.of<SaviState>(context);
+    final state = Provider.of<SaviState>(context, listen: false);
     if (!_inited) {
       _nombreCtrl.text = state.perfilNombre;
       _apellidoCtrl.text = state.perfilApellido;
@@ -46,7 +46,7 @@ class _PerfilTabState extends State<PerfilTab> {
 
   @override
   Widget build(BuildContext context) {
-    final state = Provider.of<SaviState>(context);
+    final backendState = Provider.of<SaviState>(context, listen: false);
 
     return ListView(
       padding: const EdgeInsets.all(20),
@@ -54,203 +54,194 @@ class _PerfilTabState extends State<PerfilTab> {
         const Text('Mi perfil',
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
         const SizedBox(height: 12),
-        if (!_editing) ...[
-          // Header card with avatar, name and edit button (design only)
-          Container(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black12,
-                  blurRadius: 12,
-                  offset: Offset(0, 6),
-                ),
-              ],
-            ),
-            child: Column(
+
+        if (!_editing)
+          Consumer<SaviState>(builder: (ctx, state, _) {
+            return Column(
               children: [
-                // top accent
-                Container(
-                  height: 72,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFEF3E6), // soft peach
-                    borderRadius: const BorderRadius.only(
-                      topLeft: Radius.circular(16),
-                      topRight: Radius.circular(16),
+                RepaintBoundary(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black12.withOpacity(0.9),
+                          blurRadius: 6,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
                     ),
-                  ),
-                  child: Center(
-                    child: CircleAvatar(
-                      radius: 40,
-                      backgroundColor: state.perfilAvatar.isNotEmpty
-                          ? Colors.transparent
-                          : Colors.orange,
-                      backgroundImage: state.perfilAvatar.isNotEmpty
-                          ? NetworkImage(state.perfilAvatar) as ImageProvider
-                          : null,
-                      child: state.perfilAvatar.isEmpty
-                          ? Text(
-                              ((state.perfilNombre.isNotEmpty
-                                          ? state.perfilNombre[0]
-                                          : '') +
-                                      (state.perfilApellido.isNotEmpty
-                                          ? state.perfilApellido[0]
-                                          : ''))
-                                  .toUpperCase(),
-                              style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.w600),
-                            )
-                          : null,
-                    ),
-                  ),
-                ),
-                Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  child: Column(
-                    children: [
-                      Text(
-                        state.perfilNombre.isNotEmpty
-                            ? '${state.perfilNombre} ${state.perfilApellido}'
-                                .trim()
-                            : '—',
-                        style: const TextStyle(
-                            fontSize: 16, fontWeight: FontWeight.w700),
-                      ),
-                      const SizedBox(height: 6),
-                      const Text('Miembro desde 2024',
-                          style: TextStyle(color: Colors.black54)),
-                      const SizedBox(height: 12),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          ElevatedButton.icon(
-                            onPressed: () {
-                              // populate controllers and switch to edit mode
-                              _nombreCtrl.text = state.perfilNombre;
-                              _apellidoCtrl.text = state.perfilApellido;
-                              _dniCtrl.text = state.perfilDni;
-                              _telefonoCtrl.text = state.perfilTelefono;
-                              setState(() => _editing = true);
-                            },
-                            icon: const Icon(Icons.edit, size: 18),
-                            label: const Text('Editar perfil'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.orange,
-                              foregroundColor: Colors.black,
-                              shape: const StadiumBorder(),
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 18, vertical: 12),
+                    child: Column(
+                      children: [
+                        Container(
+                          height: 72,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFEF3E6),
+                            borderRadius: const BorderRadius.only(
+                              topLeft: Radius.circular(16),
+                              topRight: Radius.circular(16),
                             ),
                           ),
-                        ],
-                      ),
-                    ],
+                          child: Center(
+                            child: CircleAvatar(
+                              radius: 40,
+                              backgroundColor: state.perfilAvatar.isNotEmpty
+                                  ? Colors.transparent
+                                  : Colors.orange,
+                              backgroundImage: state.perfilAvatar.isNotEmpty
+                                  ? NetworkImage(state.perfilAvatar)
+                                      as ImageProvider
+                                  : null,
+                              child: state.perfilAvatar.isEmpty
+                                  ? Text(
+                                      ((state.perfilNombre.isNotEmpty
+                                                  ? state.perfilNombre[0]
+                                                  : '') +
+                                              (state.perfilApellido.isNotEmpty
+                                                  ? state.perfilApellido[0]
+                                                  : ''))
+                                          .toUpperCase(),
+                                      style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 20,
+                                          fontWeight: FontWeight.w600),
+                                    )
+                                  : null,
+                            ),
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 12),
+                          child: Column(
+                            children: [
+                              Text(
+                                state.perfilNombre.isNotEmpty
+                                    ? '${state.perfilNombre} ${state.perfilApellido}'
+                                        .trim()
+                                    : '—',
+                                style: const TextStyle(
+                                    fontSize: 16, fontWeight: FontWeight.w700),
+                              ),
+                              const SizedBox(height: 6),
+                              const Text('Miembro desde 2024',
+                                  style: TextStyle(color: Colors.black54)),
+                              const SizedBox(height: 12),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  ElevatedButton.icon(
+                                    onPressed: () {
+                                      _nombreCtrl.text = state.perfilNombre;
+                                      _apellidoCtrl.text = state.perfilApellido;
+                                      _dniCtrl.text = state.perfilDni;
+                                      _telefonoCtrl.text = state.perfilTelefono;
+                                      setState(() => _editing = true);
+                                    },
+                                    icon: const Icon(Icons.edit, size: 18),
+                                    label: const Text('Editar perfil'),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
+
+                const SizedBox(height: 20),
+                const Text('Información Personal',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                const SizedBox(height: 12),
+
+                Card(
+                  child: ListTile(
+                    leading: Container(
+                      width: 48,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        color: Colors.blue.shade50,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(Icons.person, color: Colors.blue.shade700),
+                    ),
+                    title: Text(state.perfilNombre.isNotEmpty
+                        ? state.perfilNombre
+                        : '—'),
+                    subtitle: const Text('Nombre'),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Card(
+                  child: ListTile(
+                    leading: Container(
+                      width: 48,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        color: Colors.indigo.shade50,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(Icons.person_outline, color: Colors.indigo.shade700),
+                    ),
+                    title: Text(state.perfilApellido.isNotEmpty
+                        ? state.perfilApellido
+                        : '—'),
+                    subtitle: const Text('Apellido'),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Card(
+                  child: ListTile(
+                    leading: Container(
+                      width: 48,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        color: Colors.green.shade50,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(Icons.badge, color: Colors.green.shade700),
+                    ),
+                    title: Text(state.perfilDni.isNotEmpty ? state.perfilDni : '—'),
+                    subtitle: const Text('DNI'),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Card(
+                  child: ListTile(
+                    leading: Container(
+                      width: 48,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        color: Colors.teal.shade50,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(Icons.phone, color: Colors.teal.shade700),
+                    ),
+                    title: Text(state.perfilTelefono.isNotEmpty ? state.perfilTelefono : '—'),
+                    subtitle: const Text('Teléfono'),
+                  ),
+                ),
+                const SizedBox(height: 12),
               ],
-            ),
-          ),
-          const SizedBox(height: 20),
-          const Text('Información Personal',
-              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-          const SizedBox(height: 12),
-          // Info cards with icons on the left
-          Card(
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            child: ListTile(
-              leading: Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFFF4E1),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.person, color: Colors.orange),
-              ),
-              title: Text(
-                  state.perfilNombre.isNotEmpty ? state.perfilNombre : '—'),
-              subtitle: const Text('Nombre'),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Card(
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            child: ListTile(
-              leading: Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFFF4E1),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.person_outline, color: Colors.orange),
-              ),
-              title: Text(
-                  state.perfilApellido.isNotEmpty ? state.perfilApellido : '—'),
-              subtitle: const Text('Apellido'),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Card(
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            child: ListTile(
-              leading: Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFFF4E1),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.badge, color: Colors.orange),
-              ),
-              title: Text(state.perfilDni.isNotEmpty ? state.perfilDni : '—'),
-              subtitle: const Text('DNI'),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Card(
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            child: ListTile(
-              leading: Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFFF4E1),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.phone, color: Colors.orange),
-              ),
-              title: Text(
-                  state.perfilTelefono.isNotEmpty ? state.perfilTelefono : '—'),
-              subtitle: const Text('Teléfono'),
-            ),
-          ),
-          const SizedBox(height: 12),
-          // small change photo button below info (kept text)
-          // photo picker moved into edit mode
-        ] else ...[
-          // Edit mode: avatar + photo picker inside the form
+            );
+          })
+        else ...[
           Center(
             child: Column(
               children: [
                 CircleAvatar(
                   radius: 44,
-                  backgroundColor: Colors.grey.shade200,
+                  backgroundColor: Colors.grey.shade100,
                   backgroundImage: _pickedImage != null
                       ? FileImage(File(_pickedImage!.path))
-                      : (state.perfilAvatar.isNotEmpty
-                          ? NetworkImage(state.perfilAvatar) as ImageProvider
+                      : (backendState.perfilAvatar.isNotEmpty
+                          ? NetworkImage(backendState.perfilAvatar) as ImageProvider
                           : null),
-                  child: (_pickedImage == null && state.perfilAvatar.isEmpty)
-                      ? const Icon(Icons.person, size: 44, color: Colors.grey)
+                  child: (_pickedImage == null && backendState.perfilAvatar.isEmpty)
+                      ? Icon(Icons.person, size: 44, color: Colors.grey.shade600)
                       : null,
                 ),
                 const SizedBox(height: 8),
@@ -276,17 +267,12 @@ class _PerfilTabState extends State<PerfilTab> {
                             : () async {
                                 setState(() => _uploadingImage = true);
                                 try {
-                                  final backendState = Provider.of<SaviState>(
-                                      context,
-                                      listen: false);
                                   try {
-                                    await backendState
-                                        .subirAvatar(_pickedImage!.path);
+                                    await backendState.subirAvatar(_pickedImage!.path);
                                     await backendState.cargarPerfil();
                                     if (!mounted) return;
                                     ScaffoldMessenger.of(context).showSnackBar(
-                                        const SnackBar(
-                                            content: Text('Imagen cambiada')));
+                                        const SnackBar(content: Text('Imagen cambiada')));
                                     setState(() => _pickedImage = null);
                                   } catch (e) {
                                     if (!mounted) return;
@@ -294,14 +280,15 @@ class _PerfilTabState extends State<PerfilTab> {
                                         SnackBar(content: Text('Error: $e')));
                                   }
                                 } finally {
-                                  if (mounted)
+                                  if (mounted) {
                                     setState(() => _uploadingImage = false);
+                                  }
                                 }
                               },
                         icon: const Icon(Icons.check),
                         label: const Text('Aceptar imagen'),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green,
+                          backgroundColor: Colors.green.shade600,
                           foregroundColor: Colors.white,
                         ),
                       ),
@@ -319,29 +306,25 @@ class _PerfilTabState extends State<PerfilTab> {
               ],
             ),
           ),
+
           TextField(
             controller: _nombreCtrl,
-            decoration: InputDecoration(
-                labelText: 'Nombre', prefixIcon: const Icon(Icons.person)),
+            decoration: InputDecoration(labelText: 'Nombre', prefixIcon: const Icon(Icons.person)),
           ),
           const SizedBox(height: 12),
           TextField(
             controller: _apellidoCtrl,
-            decoration: InputDecoration(
-                labelText: 'Apellido',
-                prefixIcon: const Icon(Icons.person_outline)),
+            decoration: InputDecoration(labelText: 'Apellido', prefixIcon: const Icon(Icons.person_outline)),
           ),
           const SizedBox(height: 12),
           TextField(
             controller: _dniCtrl,
-            decoration: InputDecoration(
-                labelText: 'DNI', prefixIcon: const Icon(Icons.badge)),
+            decoration: InputDecoration(labelText: 'DNI', prefixIcon: const Icon(Icons.badge)),
           ),
           const SizedBox(height: 12),
           TextField(
             controller: _telefonoCtrl,
-            decoration: InputDecoration(
-                labelText: 'Teléfono', prefixIcon: const Icon(Icons.phone)),
+            decoration: InputDecoration(labelText: 'Teléfono', prefixIcon: const Icon(Icons.phone)),
             keyboardType: TextInputType.phone,
           ),
           const SizedBox(height: 16),
@@ -351,13 +334,8 @@ class _PerfilTabState extends State<PerfilTab> {
                 child: SizedBox(
                   height: 48,
                   child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.orange,
-                      foregroundColor: Colors.black,
-                      shape: const StadiumBorder(),
-                    ),
                     onPressed: () async {
-                      await state.guardarPerfil(
+                      await backendState.guardarPerfil(
                         nombre: _nombreCtrl.text,
                         apellido: _apellidoCtrl.text,
                         dni: _dniCtrl.text,
@@ -375,7 +353,6 @@ class _PerfilTabState extends State<PerfilTab> {
                   height: 48,
                   child: OutlinedButton(
                     onPressed: () {
-                      // cancel edit
                       setState(() => _editing = false);
                     },
                     child: const Text('Cancelar'),
