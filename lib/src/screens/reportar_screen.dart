@@ -34,11 +34,14 @@ class _ReportarScreenState extends State<ReportarScreen> {
           children: [
             const SizedBox(height: 8),
             const Text('Seleccione deudor'),
-            ...deudores.map((d) => RadioListTile<String>(
+            ...deudores.map((d) => ListTile(
                 title: Text(d.nombre ?? ''),
-                value: d.id ?? '',
-                groupValue: seleccionado,
-                onChanged: (v) => setState(() => seleccionado = v))),
+                leading: Icon(
+                  seleccionado == (d.id ?? '')
+                      ? Icons.radio_button_checked
+                      : Icons.radio_button_unchecked,
+                ),
+                onTap: () => setState(() => seleccionado = d.id ?? ''))),
             const SizedBox(height: 12),
             TextField(
                 controller: comentarioCtrl,

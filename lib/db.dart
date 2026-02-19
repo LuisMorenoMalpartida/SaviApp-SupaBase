@@ -145,9 +145,9 @@ class SaviState extends ChangeNotifier {
       isLoading = true;
       notifyListeners();
       await supabase.auth.signInWithPassword(email: email, password: password);
-    } on AuthException catch (_) {
+    } on AuthException catch (e) {
       onError("Credenciales incorrectas");
-      _checkAndSignOutOnAuthError(_);
+      _checkAndSignOutOnAuthError(e);
     } catch (e) {
       onError("Error de conexión");
       _checkAndSignOutOnAuthError(e);
