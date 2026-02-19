@@ -73,7 +73,7 @@ class _RecuperarScreenState extends State<RecuperarScreen> {
                   child: ElevatedButton(
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.orange,
-                      foregroundColor: Colors.white,
+                      foregroundColor: Colors.black,
                       shape: const StadiumBorder(),
                     ),
                     onPressed: _sending || emailCtrl.text.isEmpty
@@ -93,7 +93,7 @@ class _RecuperarScreenState extends State<RecuperarScreen> {
                             width: 20,
                             height: 20,
                             child: CircularProgressIndicator(
-                                strokeWidth: 2, color: Colors.white))
+                                strokeWidth: 2, color: Colors.black))
                         : const Text('Solicitar restablecimiento'),
                   ),
                 ),

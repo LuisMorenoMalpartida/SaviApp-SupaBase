@@ -155,6 +155,7 @@ class SaviState extends ChangeNotifier {
       required String periodo,
       required DateTime inicio,
       required int cantidad,
+      String moneda = 'Soles',
       required Function(String) onError,
       required Function() onSuccess}) async {
     if (currentUser == null) return;
@@ -176,6 +177,7 @@ class SaviState extends ChangeNotifier {
             'fecha_fin':
                 inicio.add(const Duration(days: 365)).toIso8601String(),
             'max_participantes': cantidad,
+            'moneda': moneda,
             'codigo_acceso': codigo,
             'creador_id': currentUser!.id,
             'estado': 'abierta'

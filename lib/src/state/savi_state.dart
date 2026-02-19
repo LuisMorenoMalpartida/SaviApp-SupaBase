@@ -260,8 +260,9 @@ class SaviState extends ChangeNotifier {
     String cant,
     String per,
     String inicio,
-    String fin,
-  ) async {
+    String fin, {
+    String moneda = 'Soles',
+  }) async {
     try {
       await _backend.crearJunta(
         nombre: nombre,
@@ -269,6 +270,7 @@ class SaviState extends ChangeNotifier {
         periodo: per,
         inicio: DateFormat('dd/MM/yyyy').parse(inicio),
         cantidad: int.tryParse(cant) ?? 10,
+        moneda: moneda,
         onError: (error) {
           Toast.show(error, navigatorKey.currentContext);
         },

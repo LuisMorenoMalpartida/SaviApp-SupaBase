@@ -75,7 +75,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                             child: ElevatedButton(
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: Colors.orange,
-                                foregroundColor: Colors.white,
+                                foregroundColor: Colors.black,
                                 shape: const StadiumBorder(),
                               ),
                               onPressed: _showButton

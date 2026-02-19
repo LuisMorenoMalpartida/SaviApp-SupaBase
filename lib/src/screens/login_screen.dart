@@ -115,7 +115,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   child: ElevatedButton(
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.orange,
-                      foregroundColor: Colors.white,
+                      foregroundColor: Colors.black,
                       shape: const StadiumBorder(),
                     ),
                     onPressed: (_loading ||
@@ -129,7 +129,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             height: 20,
                             child: CircularProgressIndicator(
                               strokeWidth: 2.0,
-                              color: Colors.white,
+                              color: Colors.black,
                             ),
                           )
                         : const Text('Iniciar sesión'),

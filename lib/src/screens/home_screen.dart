@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'dart:io';
+import 'package:image_picker/image_picker.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import '../state/savi_state.dart';
-import 'tabs/mis_juntas_tab.dart';
-import 'tabs/unirse_tab.dart';
 import 'tabs/crear_tab.dart';
 import 'tabs/perfil_tab.dart';
 
@@ -15,6 +16,10 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int _currentIndex = 0;
+  final TextEditingController _codigoCtrl = TextEditingController();
+  final FocusNode _codigoFocus = FocusNode();
+  XFile? _qrImage;
+  final ImagePicker _imagePicker = ImagePicker();
 
   @override
   void initState() {
@@ -32,7 +37,11 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       appBar: AppBar(
         automaticallyImplyLeading: false,
-        title: Image.asset('assets/logo2.png', height: 36),
+        centerTitle: true,
+        backgroundColor: Colors.white,
+        elevation: 0,
+        iconTheme: const IconThemeData(color: Colors.orange),
+        title: SvgPicture.asset('assets/logo2.svg', height: 56),
         actions: [
           IconButton(
             onPressed: () => state.logout(),
@@ -49,8 +58,6 @@ class _HomeScreenState extends State<HomeScreen> {
         type: BottomNavigationBarType.fixed,
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Inicio'),
-          BottomNavigationBarItem(icon: Icon(Icons.list), label: 'Mis Juntas'),
-          BottomNavigationBarItem(icon: Icon(Icons.group_add), label: 'Unirse'),
           BottomNavigationBarItem(icon: Icon(Icons.add_box), label: 'Crear'),
           BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Perfil'),
         ],
@@ -59,19 +66,16 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildBody(SaviState state) {
-    if (state.isLoading)
+    if (state.isLoading) {
       return const Center(child: CircularProgressIndicator());
+    }
 
     switch (_currentIndex) {
       case 0:
         return _buildTabInicio(state);
       case 1:
-        return const MisJuntasTab();
-      case 2:
-        return const UnirseTab();
-      case 3:
         return const CrearTab();
-      case 4:
+      case 2:
         return const PerfilTab();
       default:
         return Container();
@@ -79,12 +83,15 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildTabInicio(SaviState state) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
+    return Padding(
+      padding: const EdgeInsets.all(24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Summary card (Juntas activas) - moved above actions
+          _greetingCard(state),
+          const SizedBox(height: 12),
+
+          // Summary card (Juntas activas)
           Card(
             child: Padding(
               padding: const EdgeInsets.all(12.0),
@@ -104,48 +111,234 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 20),
 
           // Prompt
           Text('¿Que deberiamos hacer hoy?',
               style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 12),
+          const SizedBox(height: 16),
 
           // Action buttons
           Row(
             children: [
-              Expanded(
-                child: SizedBox(
-                  height: 44,
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.orange,
-                      foregroundColor: Colors.white,
-                      shape: const StadiumBorder(),
-                    ),
-                    onPressed: () => setState(() => _currentIndex = 3),
-                    child: const Text('CREAR JUNTA'),
-                  ),
-                ),
-              ),
+              _actionButton(
+                  'CREAR JUNTA', () => setState(() => _currentIndex = 1)),
               const SizedBox(width: 12),
-              Expanded(
-                child: SizedBox(
-                  height: 44,
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.orange,
-                      foregroundColor: Colors.white,
-                      shape: const StadiumBorder(),
-                    ),
-                    onPressed: () => setState(() => _currentIndex = 2),
-                    child: const Text('BUSCAR'),
-                  ),
-                ),
-              ),
+              _actionButton('BUSCAR', () {
+                setState(() => _currentIndex = 0);
+                FocusScope.of(context).requestFocus(_codigoFocus);
+              }),
             ],
           ),
+
+          // Join section (inline Unirse)
+          const SizedBox(height: 18),
+          _unirseSection(state),
+          const SizedBox(height: 20),
+
+          // Mis Juntas header (fixed) and scrollable list below
+          Text('Mis Juntas', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 8),
+
+          // Only this list scrolls
+          Expanded(
+            child: state.misJuntas.isEmpty
+                ? const Center(child: Text('Aún no tienes juntas'))
+                : ListView.separated(
+                    itemCount: state.misJuntas.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 8),
+                    itemBuilder: (ctx, i) {
+                      final junta = state.misJuntas[i];
+                      return Card(
+                        child: ListTile(
+                          title: Text(junta.nombre),
+                          subtitle: Text(
+                              'Cuota: S/ ${junta.montoCuota.toStringAsFixed(2)}'),
+                          onTap: () async {
+                            await state.seleccionarJunta(junta);
+                            Navigator.pushNamed(context, '/detalles');
+                          },
+                        ),
+                      );
+                    },
+                  ),
+          ),
         ],
+      ),
+    );
+  }
+
+  Widget _greetingCard(SaviState state) {
+    final user = state.currentUser;
+    String name = 'Usuario';
+    try {
+      final meta =
+          (user?.userMetadata ?? user?.user_metadata) as Map<String, dynamic>?;
+      name = meta != null && (meta['nombre'] ?? meta['name']) != null
+          ? (meta['nombre'] ?? meta['name']).toString()
+          : (user?.email?.split('@').first ?? 'Usuario');
+    } catch (_) {
+      name = user?.email?.split('@').first ?? 'Usuario';
+    }
+    final roleText =
+        state.rolActual == UserRole.owner ? 'Dueño' : 'Participante';
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.orange.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
+      child: Row(
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: Colors.orange,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Center(
+              child: Icon(Icons.waving_hand, color: Colors.white, size: 28),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Hola, $name',
+                    style: Theme.of(context)
+                        .textTheme
+                        .titleMedium
+                        ?.copyWith(fontWeight: FontWeight.w600)),
+                const SizedBox(height: 4),
+                Text('Rol actual: $roleText',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Colors.orange.shade800,
+                        )),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _unirseSection(SaviState state) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            const Icon(Icons.qr_code_scanner, color: Colors.orange),
+            const SizedBox(width: 8),
+            Text('Unirse a juntas',
+                style: Theme.of(context).textTheme.titleMedium),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _codigoCtrl,
+                focusNode: _codigoFocus,
+                decoration: InputDecoration(
+                  labelText: 'Código de la junta',
+                  prefixIcon: const Icon(Icons.vpn_key, color: Colors.orange),
+                  filled: true,
+                  fillColor: Colors.grey[50],
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none),
+                  enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: Colors.grey.shade300)),
+                  focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: Colors.orange)),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            SizedBox(
+              width: 44,
+              height: 44,
+              child: ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.orange,
+                  foregroundColor: Colors.black,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10)),
+                  padding: EdgeInsets.zero,
+                ),
+                onPressed: _pickQrImage,
+                child: const Icon(Icons.qr_code, size: 22),
+              ),
+            ),
+            const SizedBox(width: 8),
+            if (_qrImage != null)
+              SizedBox(
+                width: 56,
+                height: 56,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Image.file(File(_qrImage!.path), fit: BoxFit.cover),
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          width: double.infinity,
+          height: 48,
+          child: ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.orange,
+              foregroundColor: Colors.black,
+              shape: const StadiumBorder(),
+            ),
+            onPressed: () => state.unirseAJunta(_codigoCtrl.text),
+            child: const Text('Enviar solicitud'),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _pickQrImage() async {
+    try {
+      final XFile? picked =
+          await _imagePicker.pickImage(source: ImageSource.gallery);
+      if (picked != null) setState(() => _qrImage = picked);
+    } catch (e) {
+      debugPrint('Error picking image: $e');
+    }
+  }
+
+  @override
+  void dispose() {
+    _codigoCtrl.dispose();
+    _codigoFocus.dispose();
+    super.dispose();
+  }
+
+  Widget _actionButton(String label, VoidCallback onPressed) {
+    final style = ElevatedButton.styleFrom(
+      backgroundColor: Colors.orange,
+      foregroundColor: Colors.black,
+      shape: const StadiumBorder(),
+    );
+
+    return Expanded(
+      child: SizedBox(
+        height: 44,
+        child: ElevatedButton(
+          style: style,
+          onPressed: onPressed,
+          child: Text(label),
+        ),
       ),
     );
   }
