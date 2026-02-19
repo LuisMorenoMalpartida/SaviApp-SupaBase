@@ -264,20 +264,12 @@ class SaviState extends ChangeNotifier {
       if (apellido != null) values['apellido'] = apellido;
       if (dni != null) values['dni'] = dni;
       if (telefono != null) values['telefono'] = telefono;
+      // Use UPSERT to avoid duplicate key errors and create-or-update in one call
+      final payload = <String, dynamic>{'id': userId, ...values};
+      // ensure email exists when inserting
+      payload['email'] = supabase.auth.currentUser?.email ?? '';
 
-      // Intentar UPDATE
-      final res =
-          await supabase.from('perfiles').update(values).eq('id', userId);
-
-      // Si no existe fila afectada, insertar
-      // Supabase returns data or throws; we'll attempt insert on error/empty
-      if (res == null || (res is List && res.isEmpty)) {
-        await supabase.from('perfiles').insert({
-          'id': userId,
-          ...values,
-          'email': supabase.auth.currentUser?.email ?? ''
-        });
-      }
+      await supabase.from('perfiles').upsert(payload);
 
       onSuccess();
     } catch (e) {
@@ -303,10 +295,12 @@ class SaviState extends ChangeNotifier {
       // Obtener URL pública
       final publicUrl = supabase.storage.from('avatars').getPublicUrl(destPath);
 
-      // Actualizar perfil con la URL (columna 'avatar_url' debe existir)
-      await supabase
-          .from('perfiles')
-          .update({'avatar_url': publicUrl}).eq('id', userId);
+      // Use upsert to create or update the perfil row with avatar_url
+      await supabase.from('perfiles').upsert({
+        'id': userId,
+        'avatar_url': publicUrl,
+        'email': supabase.auth.currentUser?.email ?? ''
+      });
 
       return publicUrl;
     } catch (e) {

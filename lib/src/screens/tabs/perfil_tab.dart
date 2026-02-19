@@ -52,6 +52,182 @@ class _PerfilTabState extends State<PerfilTab> {
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
         const SizedBox(height: 12),
         if (!_editing) ...[
+          // Header card with avatar, name and edit button (design only)
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black12,
+                  blurRadius: 12,
+                  offset: Offset(0, 6),
+                ),
+              ],
+            ),
+            child: Column(
+              children: [
+                // top accent
+                Container(
+                  height: 72,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFEF3E6), // soft peach
+                    borderRadius: const BorderRadius.only(
+                      topLeft: Radius.circular(16),
+                      topRight: Radius.circular(16),
+                    ),
+                  ),
+                  child: Center(
+                    child: CircleAvatar(
+                      radius: 40,
+                      backgroundColor: Colors.orange,
+                      child: Text(
+                        ((state.perfilNombre.isNotEmpty
+                                    ? state.perfilNombre[0]
+                                    : '') +
+                                (state.perfilApellido.isNotEmpty
+                                    ? state.perfilApellido[0]
+                                    : ''))
+                            .toUpperCase(),
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  child: Column(
+                    children: [
+                      Text(
+                        state.perfilNombre.isNotEmpty
+                            ? '${state.perfilNombre} ${state.perfilApellido}'
+                                .trim()
+                            : '—',
+                        style: const TextStyle(
+                            fontSize: 16, fontWeight: FontWeight.w700),
+                      ),
+                      const SizedBox(height: 6),
+                      const Text('Miembro desde 2024',
+                          style: TextStyle(color: Colors.black54)),
+                      const SizedBox(height: 12),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          ElevatedButton.icon(
+                            onPressed: () {
+                              // populate controllers and switch to edit mode
+                              _nombreCtrl.text = state.perfilNombre;
+                              _apellidoCtrl.text = state.perfilApellido;
+                              _dniCtrl.text = state.perfilDni;
+                              _telefonoCtrl.text = state.perfilTelefono;
+                              setState(() => _editing = true);
+                            },
+                            icon: const Icon(Icons.edit, size: 18),
+                            label: const Text('Editar perfil'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.orange,
+                              foregroundColor: Colors.black,
+                              shape: const StadiumBorder(),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 18, vertical: 12),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
+          const Text('Información Personal',
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+          const SizedBox(height: 12),
+          // Info cards with icons on the left
+          Card(
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            child: ListTile(
+              leading: Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFF4E1),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.person, color: Colors.orange),
+              ),
+              title: Text(
+                  state.perfilNombre.isNotEmpty ? state.perfilNombre : '—'),
+              subtitle: const Text('Nombre'),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Card(
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            child: ListTile(
+              leading: Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFF4E1),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.person_outline, color: Colors.orange),
+              ),
+              title: Text(
+                  state.perfilApellido.isNotEmpty ? state.perfilApellido : '—'),
+              subtitle: const Text('Apellido'),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Card(
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            child: ListTile(
+              leading: Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFF4E1),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.badge, color: Colors.orange),
+              ),
+              title: Text(state.perfilDni.isNotEmpty ? state.perfilDni : '—'),
+              subtitle: const Text('DNI'),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Card(
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            child: ListTile(
+              leading: Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFF4E1),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.phone, color: Colors.orange),
+              ),
+              title: Text(
+                  state.perfilTelefono.isNotEmpty ? state.perfilTelefono : '—'),
+              subtitle: const Text('Teléfono'),
+            ),
+          ),
+          const SizedBox(height: 12),
+          // small change photo button below info (kept text)
+          // photo picker moved into edit mode
+        ] else ...[
+          // Edit mode: avatar + photo picker inside the form
           Center(
             child: Column(
               children: [
@@ -65,18 +241,16 @@ class _PerfilTabState extends State<PerfilTab> {
                       ? const Icon(Icons.person, size: 44, color: Colors.grey)
                       : null,
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 8),
                 TextButton.icon(
                   onPressed: () async {
                     final XFile? picked = await _picker.pickImage(
                         source: ImageSource.gallery, imageQuality: 80);
                     if (picked != null) {
-                      // upload immediately via SaviState helper
                       final state =
                           Provider.of<SaviState>(context, listen: false);
                       final url = await state.subirAvatar(picked.path);
                       if (url != null) {
-                        // reload perfil
                         await state.cargarPerfil();
                       }
                     }
@@ -84,61 +258,10 @@ class _PerfilTabState extends State<PerfilTab> {
                   icon: const Icon(Icons.camera_alt),
                   label: const Text('Cambiar foto'),
                 ),
+                const SizedBox(height: 12),
               ],
             ),
           ),
-          const SizedBox(height: 12),
-          Card(
-            child: ListTile(
-              title: Text(
-                  state.perfilNombre.isNotEmpty ? state.perfilNombre : '—'),
-              subtitle: const Text('Nombre'),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Card(
-            child: ListTile(
-              title: Text(
-                  state.perfilApellido.isNotEmpty ? state.perfilApellido : '—'),
-              subtitle: const Text('Apellido'),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Card(
-            child: ListTile(
-              title: Text(state.perfilDni.isNotEmpty ? state.perfilDni : '—'),
-              subtitle: const Text('DNI'),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Card(
-            child: ListTile(
-              title: Text(
-                  state.perfilTelefono.isNotEmpty ? state.perfilTelefono : '—'),
-              subtitle: const Text('Teléfono'),
-            ),
-          ),
-          const SizedBox(height: 20),
-          SizedBox(
-            height: 44,
-            child: ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.orange,
-                foregroundColor: Colors.black,
-                shape: const StadiumBorder(),
-              ),
-              onPressed: () {
-                // populate controllers and switch to edit mode
-                _nombreCtrl.text = state.perfilNombre;
-                _apellidoCtrl.text = state.perfilApellido;
-                _dniCtrl.text = state.perfilDni;
-                _telefonoCtrl.text = state.perfilTelefono;
-                setState(() => _editing = true);
-              },
-              child: const Text('Editar perfil'),
-            ),
-          ),
-        ] else ...[
           TextField(
             controller: _nombreCtrl,
             decoration: InputDecoration(
