@@ -31,6 +31,13 @@ class SaviState extends ChangeNotifier {
   String codigoJunta = "";
   String dniDueno = "";
 
+  // Perfil del usuario (editable)
+  String perfilNombre = '';
+  String perfilApellido = '';
+  String perfilDni = '';
+  String perfilTelefono = '';
+  String perfilAvatar = '';
+
   List<dynamic> listaCupos = [];
   List<dynamic> solicitudesUnirse = [];
   List<dynamic> solicitudesIntercambio = [];
@@ -74,6 +81,7 @@ class SaviState extends ChangeNotifier {
         miIdUsuario = _backend.currentUser!.id;
         rolActual = _backend.esDueno ? UserRole.owner : UserRole.member;
         await cargarJuntas();
+        await cargarPerfil();
       } else {
         miIdUsuario = '';
         rolActual = UserRole.member;
@@ -89,6 +97,71 @@ class SaviState extends ChangeNotifier {
       notifyListeners();
     } catch (e) {
       debugPrint("Error en _actualizarDesdeBackend: $e");
+    }
+  }
+
+  // --- PERFIL ---
+  Future<void> cargarPerfil() async {
+    try {
+      if (miIdUsuario.isEmpty) return;
+      final perfil = await _backend.obtenerPerfil(miIdUsuario);
+      if (perfil != null) {
+        perfilNombre = perfil['nombre'] ?? '';
+        perfilApellido = perfil['apellido'] ?? '';
+        perfilDni = perfil['dni'] ?? '';
+        perfilTelefono = perfil['telefono'] ?? '';
+        perfilAvatar = perfil['avatar_url'] ?? '';
+      }
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Error cargando perfil: $e');
+    }
+  }
+
+  Future<void> guardarPerfil({
+    required String nombre,
+    required String apellido,
+    required String dni,
+    required String telefono,
+  }) async {
+    try {
+      await _backend.actualizarPerfil(
+        userId: miIdUsuario,
+        nombre: nombre,
+        apellido: apellido,
+        dni: dni,
+        telefono: telefono,
+        onError: (err) {
+          Toast.show(err, navigatorKey.currentContext);
+        },
+        onSuccess: () {
+          perfilNombre = nombre;
+          perfilApellido = apellido;
+          perfilDni = dni;
+          perfilTelefono = telefono;
+          Toast.show('Perfil actualizado', navigatorKey.currentContext);
+          notifyListeners();
+        },
+      );
+    } catch (e) {
+      debugPrint('Error guardando perfil: $e');
+      Toast.show('Error al guardar perfil', navigatorKey.currentContext);
+    }
+  }
+
+  Future<String?> subirAvatar(String filePath) async {
+    try {
+      final url =
+          await _backend.subirAvatar(userId: miIdUsuario, filePath: filePath);
+      if (url != null) {
+        perfilAvatar = url;
+        notifyListeners();
+      }
+      return url;
+    } catch (e) {
+      debugPrint('Error en subirAvatar: $e');
+      Toast.show('Error al subir avatar', navigatorKey.currentContext);
+      return null;
     }
   }
 

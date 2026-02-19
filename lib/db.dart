@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'dart:io';
 
 // --- ACCESO GLOBAL A LA DB ---
 final supabase = Supabase.instance.client;
@@ -229,6 +230,89 @@ class SaviState extends ChangeNotifier {
     } catch (e) {
       debugPrint("Error carga: $e");
       _checkAndSignOutOnAuthError(e);
+    }
+  }
+
+  // --- PERFIL DE USUARIO ---
+  Future<Map<String, dynamic>?> obtenerPerfil(String userId) async {
+    try {
+      final perfil = await supabase
+          .from('perfiles')
+          .select('nombre,apellido,dni,telefono,email')
+          .eq('id', userId)
+          .maybeSingle();
+      return perfil as Map<String, dynamic>?;
+    } catch (e) {
+      debugPrint('Error obteniendo perfil: $e');
+      _checkAndSignOutOnAuthError(e);
+      return null;
+    }
+  }
+
+  Future<void> actualizarPerfil({
+    required String userId,
+    String? nombre,
+    String? apellido,
+    String? dni,
+    String? telefono,
+    required Function(String) onError,
+    required Function() onSuccess,
+  }) async {
+    try {
+      final values = <String, dynamic>{};
+      if (nombre != null) values['nombre'] = nombre;
+      if (apellido != null) values['apellido'] = apellido;
+      if (dni != null) values['dni'] = dni;
+      if (telefono != null) values['telefono'] = telefono;
+
+      // Intentar UPDATE
+      final res =
+          await supabase.from('perfiles').update(values).eq('id', userId);
+
+      // Si no existe fila afectada, insertar
+      // Supabase returns data or throws; we'll attempt insert on error/empty
+      if (res == null || (res is List && res.isEmpty)) {
+        await supabase.from('perfiles').insert({
+          'id': userId,
+          ...values,
+          'email': supabase.auth.currentUser?.email ?? ''
+        });
+      }
+
+      onSuccess();
+    } catch (e) {
+      debugPrint('Error actualizando perfil: $e');
+      _checkAndSignOutOnAuthError(e);
+      onError(e.toString());
+    }
+  }
+
+  /// Sube un archivo de avatar al bucket `avatars` y actualiza la fila de perfil
+  Future<String?> subirAvatar({
+    required String userId,
+    required String filePath,
+  }) async {
+    try {
+      final file = File(filePath);
+      final destPath =
+          'avatars/$userId-${DateTime.now().millisecondsSinceEpoch}.jpg';
+
+      // Upload file
+      await supabase.storage.from('avatars').upload(destPath, file);
+
+      // Obtener URL pública
+      final publicUrl = supabase.storage.from('avatars').getPublicUrl(destPath);
+
+      // Actualizar perfil con la URL (columna 'avatar_url' debe existir)
+      await supabase
+          .from('perfiles')
+          .update({'avatar_url': publicUrl}).eq('id', userId);
+
+      return publicUrl;
+    } catch (e) {
+      debugPrint('Error subiendo avatar: $e');
+      _checkAndSignOutOnAuthError(e);
+      return null;
     }
   }
 
