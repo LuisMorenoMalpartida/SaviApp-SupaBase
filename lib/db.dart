@@ -245,6 +245,25 @@ class SaviState extends ChangeNotifier {
     }
   }
 
+  // --- 7. ELIMINAR JUNTA ---
+  Future<void> eliminarJunta(String id) async {
+    if (currentUser == null) return;
+    try {
+      isLoading = true;
+      notifyListeners();
+      // eliminar la junta (y dependencias si fuese necesario)
+      await supabase.from('juntas').delete().eq('id', id);
+      // refrescar lista local
+      await cargarMisJuntas();
+    } catch (e) {
+      debugPrint('Error eliminando junta: $e');
+      _checkAndSignOutOnAuthError(e);
+    } finally {
+      isLoading = false;
+      notifyListeners();
+    }
+  }
+
   // --- PERFIL DE USUARIO ---
   Future<Map<String, dynamic>?> obtenerPerfil(String userId) async {
     try {

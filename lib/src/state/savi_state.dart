@@ -412,6 +412,20 @@ class SaviState extends ChangeNotifier {
     }
   }
 
+  Future<void> eliminarJunta(String id) async {
+    try {
+      await _backend.eliminarJunta(id);
+      // refrescar listas locales
+      await cargarJuntas();
+      final ctx = navigatorKey.currentContext;
+      if (ctx != null) Toast.show('Junta eliminada', ctx);
+    } catch (e) {
+      debugPrint('Error en eliminarJunta: $e');
+      final ctx = navigatorKey.currentContext;
+      if (ctx != null) Toast.show('Error al eliminar junta', ctx);
+    }
+  }
+
   Future<void> unirseAJunta(String codigo) async {
     try {
       await _backend.unirseAJunta(

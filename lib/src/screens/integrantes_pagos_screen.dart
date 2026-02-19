@@ -7,7 +7,7 @@ class IntegrantesPagosScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final state = Provider.of<SaviState>(context);
+    final state = Provider.of<SaviState>(context, listen: false);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Estado de Pagos')),
@@ -17,25 +17,28 @@ class IntegrantesPagosScreen extends StatelessWidget {
             crossAxisCount: 2, childAspectRatio: 0.9),
         itemCount: state.listaCupos.length,
         itemBuilder: (context, i) {
-          final c = state.listaCupos[i];
-          final nombre = c.nombre ?? 'Disponible';
-          return Card(
-            child: Padding(
-              padding: const EdgeInsets.all(8.0),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(nombre),
-                  const SizedBox(height: 8),
-                  Text(c.pagoRealizado ? 'Pagado' : 'Pendiente'),
-                  const SizedBox(height: 8),
-                  ElevatedButton(
-                      onPressed: () => _mostrarSubirVoucher(context, state, i),
-                      child: const Text('Subir voucher'))
-                ],
+          return Consumer<SaviState>(builder: (ctx, state, _) {
+            final c = state.listaCupos[i];
+            final nombre = c.nombre ?? 'Disponible';
+            return Card(
+              child: Padding(
+                padding: const EdgeInsets.all(8.0),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(nombre),
+                    const SizedBox(height: 8),
+                    Text(c.pagoRealizado ? 'Pagado' : 'Pendiente'),
+                    const SizedBox(height: 8),
+                    ElevatedButton(
+                        onPressed: () =>
+                            _mostrarSubirVoucher(context, state, i),
+                        child: const Text('Subir voucher'))
+                  ],
+                ),
               ),
-            ),
-          );
+            );
+          });
         },
       ),
     );

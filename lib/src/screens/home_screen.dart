@@ -155,15 +155,102 @@ class _HomeScreenState extends State<HomeScreen> {
                 separatorBuilder: (_, __) => const SizedBox(height: 8),
                 itemBuilder: (ctx, i) {
                   final junta = list[i];
-                  return Card(
-                    child: ListTile(
-                      title: Text(junta.nombre),
-                      subtitle: Text(
-                          'Cuota: S/ ${junta.montoCuota.toStringAsFixed(2)}'),
-                      onTap: () async {
-                        await s.seleccionarJunta(junta);
-                        Navigator.pushNamed(context, '/detalles');
-                      },
+                  return GestureDetector(
+                    onTap: () async {
+                      await s.seleccionarJunta(junta);
+                      Navigator.pushNamed(context, '/detalles');
+                    },
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFAF6F8), // soft pink background
+                        borderRadius: BorderRadius.circular(14),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black12,
+                            blurRadius: 6,
+                            offset: const Offset(0, 3),
+                          ),
+                        ],
+                      ),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 14),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 48,
+                            height: 48,
+                            decoration: BoxDecoration(
+                              color: Colors.blue.shade100,
+                              shape: BoxShape.circle,
+                            ),
+                            child:
+                                const Icon(Icons.savings, color: Colors.blue),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(junta.nombre,
+                                    style: const TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 16)),
+                                const SizedBox(height: 6),
+                                Text(
+                                    s.esDueno
+                                        ? 'Eres el Organizador'
+                                        : 'Participante',
+                                    style: TextStyle(color: Colors.black54)),
+                              ],
+                            ),
+                          ),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Text('S/ ${junta.montoCuota.toStringAsFixed(2)}',
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.bold)),
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  IconButton(
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(),
+                                    onPressed: () async {
+                                      final confirmed = await showDialog<bool>(
+                                        context: context,
+                                        builder: (ctx) => AlertDialog(
+                                          title: const Text('Eliminar junta'),
+                                          content: const Text(
+                                              '¿Seguro que quieres eliminar esta junta? Esta acción no se puede deshacer.'),
+                                          actions: [
+                                            TextButton(
+                                                onPressed: () =>
+                                                    Navigator.pop(ctx, false),
+                                                child: const Text('Cancelar')),
+                                            ElevatedButton(
+                                                onPressed: () =>
+                                                    Navigator.pop(ctx, true),
+                                                child: const Text('Eliminar')),
+                                          ],
+                                        ),
+                                      );
+                                      if (confirmed == true) {
+                                        await s.eliminarJunta(junta.id);
+                                      }
+                                    },
+                                    icon: const Icon(Icons.delete_forever,
+                                        color: Colors.redAccent, size: 20),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  const Icon(Icons.chevron_right,
+                                      color: Colors.black54),
+                                ],
+                              )
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
                   );
                 },
