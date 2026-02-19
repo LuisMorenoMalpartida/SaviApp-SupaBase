@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'dart:io';
+//import 'dart:io';
+//import 'package:mime/mime.dart';
 
 // --- ACCESO GLOBAL A LA DB ---
 final supabase = Supabase.instance.client;
@@ -241,7 +242,8 @@ class SaviState extends ChangeNotifier {
           .select('nombre,apellido,dni,telefono,email')
           .eq('id', userId)
           .maybeSingle();
-      return perfil as Map<String, dynamic>?;
+      if (perfil is Map<String, dynamic>) return perfil;
+      return null;
     } catch (e) {
       debugPrint('Error obteniendo perfil: $e');
       _checkAndSignOutOnAuthError(e);
@@ -284,30 +286,60 @@ class SaviState extends ChangeNotifier {
     required String userId,
     required String filePath,
   }) async {
+    /*
+    // Upload disabled temporarily. Original logic commented out:
+    final file = File(filePath);
+    final bucket = 'avatars';
+    final destPath = '$userId-${DateTime.now().millisecondsSinceEpoch}.jpg';
+
+    // 1) Upload file
     try {
-      final file = File(filePath);
-      final destPath =
-          'avatars/$userId-${DateTime.now().millisecondsSinceEpoch}.jpg';
+      final detectedMime =
+          lookupMimeType(filePath) ?? 'application/octet-stream';
+      debugPrint('Detected mime type: $detectedMime');
+      debugPrint('Supabase client: $supabase');
+      debugPrint(
+          'Current user id (from client): ${supabase.auth.currentUser?.id}');
+      debugPrint('Uploading to bucket="$bucket" path="$destPath"');
+      await supabase.storage.from(bucket).upload(destPath, file,
+          fileOptions: FileOptions(contentType: detectedMime));
+    } catch (e) {
+      debugPrint(
+          'Error en storage.upload (bucket=$bucket, path=$destPath): $e');
+      _checkAndSignOutOnAuthError(e);
+      throw Exception('storage.upload error: $e');
+    }
 
-      // Upload file
-      await supabase.storage.from('avatars').upload(destPath, file);
+    // 2) Obtener URL pública
+    String publicUrl;
+    try {
+      publicUrl = supabase.storage.from(bucket).getPublicUrl(destPath);
+      debugPrint('Public URL obtained: $publicUrl');
+    } catch (e) {
+      debugPrint(
+          'Error al obtener publicUrl (bucket=$bucket, path=$destPath): $e');
+      _checkAndSignOutOnAuthError(e);
+      throw Exception('getPublicUrl error: $e');
+    }
 
-      // Obtener URL pública
-      final publicUrl = supabase.storage.from('avatars').getPublicUrl(destPath);
-
-      // Use upsert to create or update the perfil row with avatar_url
+    // 3) Upsert perfil con avatar_url
+    try {
       await supabase.from('perfiles').upsert({
         'id': userId,
         'avatar_url': publicUrl,
         'email': supabase.auth.currentUser?.email ?? ''
       });
-
-      return publicUrl;
     } catch (e) {
-      debugPrint('Error subiendo avatar: $e');
+      debugPrint('Error en upsert perfiles: $e');
       _checkAndSignOutOnAuthError(e);
-      return null;
+      throw Exception('upsert perfiles error: $e');
     }
+
+    return publicUrl;
+    */
+
+    debugPrint('subirAvatar is temporarily disabled');
+    return null;
   }
 
   // --- 5. UNIRSE A JUNTA ---

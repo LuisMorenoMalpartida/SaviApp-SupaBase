@@ -285,19 +285,40 @@ class SaviState extends ChangeNotifier {
 
   Future<void> cargarParticipantes(String juntaId) async {
     try {
-      final participantes = await supabase.from('participantes').select('''
-            usuario_id,
-            rol,
-            numero_turno,
-            pago_realizado,
-            voucher_url,
-            perfiles:usuario_id (
-              nombre,apellido,dni,telefono
-            )
-          ''').eq('junta_id', juntaId);
+      // Obtener participantes sin dependencias de FK
+      // Select all columns to avoid requesting missing columns like pago_realizado
+      final participantes =
+          await supabase.from('participantes').select().eq('junta_id', juntaId);
+
+      final parts = (participantes as List<dynamic>);
+
+      // Obtener perfiles por separado para los usuario_ids encontrados
+      final Set<String> ids = parts
+          .map((p) => p['usuario_id']?.toString())
+          .where((id) => id != null)
+          .cast<String>()
+          .toSet();
+
+      Map<String, dynamic> perfilesMap = {};
+      if (ids.isNotEmpty) {
+        final perfiles = await supabase
+            .from('perfiles')
+            .select('id,nombre,apellido,dni,telefono')
+            .filter('id', 'in', ids.toList());
+        for (var perfil in (perfiles as List<dynamic>)) {
+          perfilesMap[perfil['id'].toString()] = perfil;
+        }
+      }
+
+      // Combinar participantes con su perfil (si existe)
+      final combined = parts.map((p) {
+        final copy = Map<String, dynamic>.from(p as Map);
+        copy['perfiles'] = perfilesMap[p['usuario_id']?.toString()] ?? {};
+        return copy;
+      }).toList();
 
       listaCupos = await compute(parsers.parseIntegrantes,
-          {'data': participantes as List<dynamic>, 'numPersonas': numPersonas});
+          {'data': combined, 'numPersonas': numPersonas});
     } catch (e) {
       debugPrint("Error cargando participantes: $e");
       backend.checkAndSignOutOnAuthError(e);
@@ -307,17 +328,39 @@ class SaviState extends ChangeNotifier {
 
   Future<void> cargarSolicitudes(String juntaId) async {
     try {
-      try {
-        final unirse = await supabase.from('solicitudes').select('''
-              id,usuario_id,estado,perfiles:usuario_id (nombre,apellido,dni,telefono)
-            ''').eq('junta_id', juntaId);
+      // Obtener solicitudes sin relaciones anidadas
+      final unirse = await supabase
+          .from('solicitudes')
+          .select('id,usuario_id,estado')
+          .eq('junta_id', juntaId);
 
-        solicitudesUnirse =
-            await compute(parsers.parseSolicitudes, (unirse as List<dynamic>));
-      } catch (e) {
-        debugPrint("Tabla solicitudes no disponible: $e");
-        solicitudesUnirse = [];
+      final solicitudes = (unirse as List<dynamic>);
+
+      final Set<String> ids = solicitudes
+          .map((s) => s['usuario_id']?.toString())
+          .where((id) => id != null)
+          .cast<String>()
+          .toSet();
+
+      Map<String, dynamic> perfilesMap = {};
+      if (ids.isNotEmpty) {
+        final perfiles = await supabase
+            .from('perfiles')
+            .select('id,nombre,apellido,dni,telefono')
+            .filter('id', 'in', ids.toList());
+        for (var perfil in (perfiles as List<dynamic>)) {
+          perfilesMap[perfil['id'].toString()] = perfil;
+        }
       }
+
+      final combined = solicitudes.map((s) {
+        final copy = Map<String, dynamic>.from(s as Map);
+        copy['perfiles'] = perfilesMap[s['usuario_id']?.toString()] ?? {};
+        return copy;
+      }).toList();
+
+      solicitudesUnirse =
+          await compute(parsers.parseSolicitudes, (combined as List<dynamic>));
 
       solicitudesIntercambio = [];
     } catch (e) {
@@ -425,23 +468,50 @@ class SaviState extends ChangeNotifier {
       if (juntaSeleccionada == null) return;
 
       final cupo = listaCupos[index];
-      await supabase
-          .from('participantes')
-          .update({'pago_realizado': true, 'voucher_url': voucherUrl})
-          .eq('junta_id', juntaSeleccionada!.id)
-          .eq('usuario_id', cupo.id);
 
-      cupo.pagoRealizado = true;
+      try {
+        await supabase
+            .from('participantes')
+            .update({'pago_realizado': true, 'voucher_url': voucherUrl})
+            .eq('junta_id', juntaSeleccionada!.id)
+            .eq('usuario_id', cupo.id);
+      } catch (e) {
+        final s = e.toString();
+        debugPrint('Initial update error in subirVoucher: $s');
+        // If DB doesn't have the column 'pago_realizado' retry without it
+        if (s.contains('pago_realizado') || s.contains('42703')) {
+          try {
+            await supabase
+                .from('participantes')
+                .update({'voucher_url': voucherUrl})
+                .eq('junta_id', juntaSeleccionada!.id)
+                .eq('usuario_id', cupo.id);
+          } catch (e2) {
+            debugPrint('Retry update without pago_realizado failed: $e2');
+            backend.checkAndSignOutOnAuthError(e2);
+            final ctx = navigatorKey.currentContext;
+            Toast.show('Error al subir voucher', ctx);
+            return;
+          }
+        } else {
+          rethrow;
+        }
+      }
+
+      // Update local model defensively
+      try {
+        cupo.pagoRealizado = true;
+      } catch (_) {}
       cupo.voucherUrl = voucherUrl;
       notifyListeners();
 
       final ctx = navigatorKey.currentContext;
-      Toast.show("Pago registrado", ctx);
+      Toast.show('Pago registrado', ctx);
     } catch (e) {
-      debugPrint("Error subiendo voucher: $e");
+      debugPrint('Error subiendo voucher: $e');
       backend.checkAndSignOutOnAuthError(e);
       final ctx = navigatorKey.currentContext;
-      Toast.show("Error al subir voucher", ctx);
+      Toast.show('Error al subir voucher', ctx);
     }
   }
 }

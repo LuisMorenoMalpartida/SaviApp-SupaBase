@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../state/savi_state.dart';
 import 'package:image_picker/image_picker.dart';
+import 'dart:io';
 
 class PerfilTab extends StatefulWidget {
   const PerfilTab({super.key});
@@ -17,6 +18,8 @@ class _PerfilTabState extends State<PerfilTab> {
   final _telefonoCtrl = TextEditingController();
   bool _inited = false;
   bool _editing = false;
+  XFile? _pickedImage;
+  bool _uploadingImage = false;
   final ImagePicker _picker = ImagePicker();
 
   @override
@@ -80,20 +83,27 @@ class _PerfilTabState extends State<PerfilTab> {
                   child: Center(
                     child: CircleAvatar(
                       radius: 40,
-                      backgroundColor: Colors.orange,
-                      child: Text(
-                        ((state.perfilNombre.isNotEmpty
-                                    ? state.perfilNombre[0]
-                                    : '') +
-                                (state.perfilApellido.isNotEmpty
-                                    ? state.perfilApellido[0]
-                                    : ''))
-                            .toUpperCase(),
-                        style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 20,
-                            fontWeight: FontWeight.w600),
-                      ),
+                      backgroundColor: state.perfilAvatar.isNotEmpty
+                          ? Colors.transparent
+                          : Colors.orange,
+                      backgroundImage: state.perfilAvatar.isNotEmpty
+                          ? NetworkImage(state.perfilAvatar) as ImageProvider
+                          : null,
+                      child: state.perfilAvatar.isEmpty
+                          ? Text(
+                              ((state.perfilNombre.isNotEmpty
+                                          ? state.perfilNombre[0]
+                                          : '') +
+                                      (state.perfilApellido.isNotEmpty
+                                          ? state.perfilApellido[0]
+                                          : ''))
+                                  .toUpperCase(),
+                              style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w600),
+                            )
+                          : null,
                     ),
                   ),
                 ),
@@ -234,10 +244,12 @@ class _PerfilTabState extends State<PerfilTab> {
                 CircleAvatar(
                   radius: 44,
                   backgroundColor: Colors.grey.shade200,
-                  backgroundImage: state.perfilAvatar.isNotEmpty
-                      ? NetworkImage(state.perfilAvatar) as ImageProvider
-                      : null,
-                  child: state.perfilAvatar.isEmpty
+                  backgroundImage: _pickedImage != null
+                      ? FileImage(File(_pickedImage!.path))
+                      : (state.perfilAvatar.isNotEmpty
+                          ? NetworkImage(state.perfilAvatar) as ImageProvider
+                          : null),
+                  child: (_pickedImage == null && state.perfilAvatar.isEmpty)
                       ? const Icon(Icons.person, size: 44, color: Colors.grey)
                       : null,
                 ),
@@ -247,17 +259,62 @@ class _PerfilTabState extends State<PerfilTab> {
                     final XFile? picked = await _picker.pickImage(
                         source: ImageSource.gallery, imageQuality: 80);
                     if (picked != null) {
-                      final state =
-                          Provider.of<SaviState>(context, listen: false);
-                      final url = await state.subirAvatar(picked.path);
-                      if (url != null) {
-                        await state.cargarPerfil();
-                      }
+                      setState(() => _pickedImage = picked);
                     }
                   },
                   icon: const Icon(Icons.camera_alt),
                   label: const Text('Cambiar foto'),
                 ),
+                const SizedBox(height: 8),
+                if (_pickedImage != null) ...[
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      ElevatedButton.icon(
+                        onPressed: _uploadingImage
+                            ? null
+                            : () async {
+                                setState(() => _uploadingImage = true);
+                                try {
+                                  final backendState = Provider.of<SaviState>(
+                                      context,
+                                      listen: false);
+                                  try {
+                                    await backendState
+                                        .subirAvatar(_pickedImage!.path);
+                                    await backendState.cargarPerfil();
+                                    if (!mounted) return;
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(
+                                            content: Text('Imagen cambiada')));
+                                    setState(() => _pickedImage = null);
+                                  } catch (e) {
+                                    if (!mounted) return;
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(content: Text('Error: $e')));
+                                  }
+                                } finally {
+                                  if (mounted)
+                                    setState(() => _uploadingImage = false);
+                                }
+                              },
+                        icon: const Icon(Icons.check),
+                        label: const Text('Aceptar imagen'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green,
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      OutlinedButton(
+                        onPressed: () {
+                          setState(() => _pickedImage = null);
+                        },
+                        child: const Text('Descartar'),
+                      ),
+                    ],
+                  ),
+                ],
                 const SizedBox(height: 12),
               ],
             ),
