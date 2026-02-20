@@ -6,6 +6,7 @@ import 'dart:async';
 
 import 'package:savi_app/backend.dart' as backend;
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:savi_app/logger.dart';
 import '../parsers/parsers.dart' as parsers;
 import '../utils/navigation.dart';
 import '../utils/toast.dart';
@@ -87,7 +88,7 @@ class SaviState extends ChangeNotifier {
   Future<void> _actualizarDesdeBackend() async {
     try {
       debugPrint(
-          '[SaviState] _actualizarDesdeBackend start: ${DateTime.now().toIso8601String()} currentUser=${_backend.currentUser?.id}');
+          '[SaviState] _actualizarDesdeBackend start: ${DateTime.now().toIso8601String()} currentUser=${_backend.currentUser?.id ?? ''}');
       if (_backend.currentUser != null) {
         miIdUsuario = _backend.currentUser!.id;
         rolActual = _backend.esDueno ? UserRole.owner : UserRole.member;
@@ -95,10 +96,11 @@ class SaviState extends ChangeNotifier {
         // refresh owner solicitudes list
         await cargarSolicitudesParaDueno();
         // Start realtime subscription for owner solicitudes if user is owner
-        if (rolActual == UserRole.owner)
+        if (rolActual == UserRole.owner) {
           startRealtimeSolicitudes();
-        else
+        } else {
           stopRealtimeSolicitudes();
+        }
         await cargarPerfil();
       } else {
         miIdUsuario = '';
@@ -118,6 +120,38 @@ class SaviState extends ChangeNotifier {
     } catch (e) {
       debugPrint("Error en _actualizarDesdeBackend: $e");
     }
+  }
+
+  // Helpers to avoid retaining BuildContext across async gaps
+  void _safeToast(String message) {
+    final nav = navigatorKey.currentState;
+    final ctx = nav?.overlay?.context;
+    if (ctx != null) {
+      Toast.show(message, ctx);
+    }
+  }
+
+  Future<void> _safeShowCodeDialog(String codigo) async {
+    final nav = navigatorKey.currentState;
+    final ctx = nav?.overlay?.context;
+    if (ctx == null) return;
+    await showDialog<void>(
+      context: ctx,
+      builder: (dctx) => AlertDialog(
+        title: const Text('Código de la junta'),
+        content: SelectableText(codigo),
+        actions: [
+          TextButton(
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: codigo));
+                Navigator.pop(dctx);
+              },
+              child: const Text('Copiar')),
+          TextButton(
+              onPressed: () => Navigator.pop(dctx), child: const Text('OK')),
+        ],
+      ),
+    );
   }
 
   void startPollingSolicitudes(
@@ -144,7 +178,9 @@ class SaviState extends ChangeNotifier {
           .where((j) => j.creadorId == miIdUsuario)
           .map((j) => j.id)
           .toList();
-      if (ownerJuntas.isEmpty) return;
+      if (ownerJuntas.isEmpty) {
+        return;
+      }
 
       // Supabase stream builders may not support `filter(...)` the same way
       // as the normal query builder. Subscribe to the table and filter
@@ -177,7 +213,9 @@ class SaviState extends ChangeNotifier {
 
   Future<void> cargarSolicitudesParaDueno() async {
     try {
-      if (miIdUsuario.isEmpty) return;
+      if (miIdUsuario.isEmpty) {
+        return;
+      }
       // Ensure misJuntas updated
       final ownerJuntas = misJuntas
           .where((j) => j.creadorId == miIdUsuario)
@@ -199,9 +237,18 @@ class SaviState extends ChangeNotifier {
 
       Map<String, dynamic> perfilesMap = {};
       if (ids.isNotEmpty) {
-        final perfiles = await _backend.obtenerPerfilesPorIds(ids.toList());
+        final perfiles =
+            await _backend.obtenerPerfilesModelPorIds(ids.toList());
         for (var perfil in perfiles) {
-          perfilesMap[perfil['id'].toString()] = perfil;
+          perfilesMap[perfil.id] = {
+            'id': perfil.id,
+            'nombre': perfil.nombre,
+            'apellido': perfil.apellido,
+            'dni': perfil.dni,
+            'telefono': perfil.telefono,
+            'email': perfil.email,
+            'avatar_url': perfil.avatarUrl,
+          };
         }
       }
 
@@ -224,7 +271,9 @@ class SaviState extends ChangeNotifier {
     try {
       debugPrint(
           '[SaviState] cargarPerfil start: ${DateTime.now().toIso8601String()} user=$miIdUsuario');
-      if (miIdUsuario.isEmpty) return;
+      if (miIdUsuario.isEmpty) {
+        return;
+      }
       final perfil = await _backend.obtenerPerfil(miIdUsuario);
       if (perfil != null) {
         perfilNombre = perfil['nombre'] ?? '';
@@ -255,20 +304,20 @@ class SaviState extends ChangeNotifier {
         dni: dni,
         telefono: telefono,
         onError: (err) {
-          Toast.show(err, navigatorKey.currentContext);
+          _safeToast(err);
         },
         onSuccess: () {
           perfilNombre = nombre;
           perfilApellido = apellido;
           perfilDni = dni;
           perfilTelefono = telefono;
-          Toast.show('Perfil actualizado', navigatorKey.currentContext);
+          _safeToast('Perfil actualizado');
           notifyListeners();
         },
       );
     } catch (e) {
       debugPrint('Error guardando perfil: $e');
-      Toast.show('Error al guardar perfil', navigatorKey.currentContext);
+      _safeToast('Error al guardar perfil');
     }
   }
 
@@ -283,7 +332,7 @@ class SaviState extends ChangeNotifier {
       return url;
     } catch (e) {
       debugPrint('Error en subirAvatar: $e');
-      Toast.show('Error al subir avatar', navigatorKey.currentContext);
+      _safeToast('Error al subir avatar');
       return null;
     }
   }
@@ -293,7 +342,7 @@ class SaviState extends ChangeNotifier {
   Future<void> iniciarSesion(String email, String password) async {
     try {
       await _backend.iniciarSesion(email, password, (error) {
-        Toast.show(error, navigatorKey.currentContext);
+        _safeToast(error);
       });
 
       if (_backend.currentUser != null) {
@@ -301,7 +350,7 @@ class SaviState extends ChangeNotifier {
       }
     } catch (e) {
       debugPrint("Error en iniciarSesion: $e");
-      Toast.show("Error al iniciar sesión", navigatorKey.currentContext);
+      _safeToast("Error al iniciar sesión");
     }
   }
 
@@ -323,17 +372,21 @@ class SaviState extends ChangeNotifier {
         dni: dni,
         telefono: telefono,
         onError: (error) {
-          Toast.show(error, navigatorKey.currentContext);
-          if (!completer.isCompleted) completer.complete(false);
+          _safeToast(error);
+          if (!completer.isCompleted) {
+            completer.complete(false);
+          }
         },
         onSuccess: () {
-          if (!completer.isCompleted) completer.complete(true);
+          if (!completer.isCompleted) {
+            completer.complete(true);
+          }
         },
       );
       return await completer.future;
     } catch (e) {
       debugPrint("Error en registrarUsuario: $e");
-      Toast.show("Error al registrar usuario", navigatorKey.currentContext);
+      _safeToast("Error al registrar usuario");
       return false;
     }
   }
@@ -341,11 +394,9 @@ class SaviState extends ChangeNotifier {
   Future<void> logout() async {
     try {
       await _backend.logout();
-      final ctx = navigatorKey.currentContext;
-      if (ctx != null) {
-        Toast.show("Sesión cerrada", ctx);
-        Navigator.pushNamedAndRemoveUntil(ctx, '/login', (r) => false);
-      }
+      _safeToast("Sesión cerrada");
+      navigatorKey.currentState
+          ?.pushNamedAndRemoveUntil('/login', (r) => false);
     } catch (e) {
       debugPrint("Error en logout: $e");
     }
@@ -422,35 +473,41 @@ class SaviState extends ChangeNotifier {
 
   Future<void> cargarParticipantes(String juntaId) async {
     try {
-      // Obtener participantes usando el wrapper del backend
-      final parts = await _backend.obtenerParticipantesPorJunta(juntaId);
+      // Obtener participantes usando el wrapper tipado del backend
+      final parts = await _backend.obtenerParticipantesModelPorJunta(juntaId);
 
       // Obtener perfiles por separado para los usuario_ids encontrados
-      final Set<String> ids = parts
-          .map((p) => p['usuario_id']?.toString())
-          .where((id) => id != null)
-          .cast<String>()
-          .toSet();
+      final Set<String> ids = parts.map((p) => p.usuarioId).toSet();
 
       Map<String, dynamic> perfilesMap = {};
       if (ids.isNotEmpty) {
-        final perfiles = await _backend.obtenerPerfilesPorIds(ids.toList());
-        for (var perfil in (perfiles as List<dynamic>)) {
-          perfilesMap[perfil['id'].toString()] = perfil;
+        final perfiles =
+            await _backend.obtenerPerfilesModelPorIds(ids.toList());
+        for (var perfil in perfiles) {
+          perfilesMap[perfil.id] = {
+            'id': perfil.id,
+            'nombre': perfil.nombre,
+            'apellido': perfil.apellido,
+            'dni': perfil.dni,
+            'telefono': perfil.telefono,
+            'email': perfil.email,
+            'avatar_url': perfil.avatarUrl,
+          };
         }
       }
 
       // Combinar participantes con su perfil (si existe)
       final combined = parts.map((p) {
-        final copy = Map<String, dynamic>.from(p as Map);
-        copy['perfiles'] = perfilesMap[p['usuario_id']?.toString()] ?? {};
-        return copy;
+        return {
+          ...p.toJson(),
+          'perfiles': perfilesMap[p.usuarioId] ?? {},
+        };
       }).toList();
 
       listaCupos = await compute(parsers.parseIntegrantes,
           {'data': combined, 'numPersonas': numPersonas});
     } catch (e) {
-      debugPrint("Error cargando participantes: $e");
+      logger.error('Error cargando participantes: $e');
       backend.checkAndSignOutOnAuthError(e);
       listaCupos = [];
     }
@@ -470,7 +527,7 @@ class SaviState extends ChangeNotifier {
       Map<String, dynamic> perfilesMap = {};
       if (ids.isNotEmpty) {
         final perfiles = await _backend.obtenerPerfilesPorIds(ids.toList());
-        for (var perfil in (perfiles as List<dynamic>)) {
+        for (var perfil in perfiles) {
           perfilesMap[perfil['id'].toString()] = perfil;
         }
       }
@@ -510,11 +567,10 @@ class SaviState extends ChangeNotifier {
         cantidad: int.tryParse(cant) ?? 10,
         moneda: moneda,
         onError: (error) {
-          Toast.show(error, navigatorKey.currentContext);
+          _safeToast(error);
         },
         onSuccess: (data) async {
-          final ctx = navigatorKey.currentContext;
-          Toast.show("Junta creada exitosamente", ctx);
+          _safeToast("Junta creada exitosamente");
           // Store last created code so UI can display it
           try {
             ultimoCodigoCreado = data['codigo_acceso']?.toString() ?? '';
@@ -523,26 +579,7 @@ class SaviState extends ChangeNotifier {
           // Mostrar codigo de acceso en un diálogo con opción de copiar
           try {
             final codigo = data['codigo_acceso']?.toString() ?? '';
-            if (ctx != null) {
-              showDialog<void>(
-                context: ctx,
-                builder: (dctx) => AlertDialog(
-                  title: const Text('Código de la junta'),
-                  content: SelectableText(codigo),
-                  actions: [
-                    TextButton(
-                        onPressed: () {
-                          Clipboard.setData(ClipboardData(text: codigo));
-                          Navigator.pop(dctx);
-                        },
-                        child: const Text('Copiar')),
-                    TextButton(
-                        onPressed: () => Navigator.pop(dctx),
-                        child: const Text('OK')),
-                  ],
-                ),
-              );
-            }
+            await _safeShowCodeDialog(codigo);
           } catch (e) {
             debugPrint('Error mostrando codigo: $e');
           }
@@ -557,7 +594,7 @@ class SaviState extends ChangeNotifier {
       );
     } catch (e) {
       debugPrint("Error en crearJunta: $e");
-      Toast.show("Error al crear la junta", navigatorKey.currentContext);
+      _safeToast("Error al crear la junta");
     }
   }
 
@@ -566,12 +603,10 @@ class SaviState extends ChangeNotifier {
       await _backend.eliminarJunta(id);
       // refrescar listas locales
       await cargarJuntas();
-      final ctx = navigatorKey.currentContext;
-      if (ctx != null) Toast.show('Junta eliminada', ctx);
+      _safeToast('Junta eliminada');
     } catch (e) {
       debugPrint('Error en eliminarJunta: $e');
-      final ctx = navigatorKey.currentContext;
-      if (ctx != null) Toast.show('Error al eliminar junta', ctx);
+      _safeToast('Error al eliminar junta');
     }
   }
 
@@ -580,22 +615,24 @@ class SaviState extends ChangeNotifier {
       await _backend.unirseAJunta(
         codigo,
         (error) {
-          Toast.show(error, navigatorKey.currentContext);
+          _safeToast(error);
         },
         () {
-          Toast.show("Solicitud enviada al dueño", navigatorKey.currentContext);
+          _safeToast("Solicitud enviada al dueño");
         },
       );
     } catch (e) {
       debugPrint("Error en unirseAJunta: $e");
-      Toast.show("Error al unirse a la junta", navigatorKey.currentContext);
+      _safeToast("Error al unirse a la junta");
     }
   }
 
   Future<void> aceptarSolicitud(dynamic solicitud) async {
     try {
       final juntaId = solicitud['junta_id'] ?? juntaSeleccionada?.id;
-      if (juntaId == null) return;
+      if (juntaId == null) {
+        return;
+      }
 
       await _backend.actualizarSolicitudEstado(solicitud['id'], 'aprobada');
 
@@ -611,14 +648,12 @@ class SaviState extends ChangeNotifier {
       // Also refresh owner's solicitudes list
       await cargarSolicitudesParaDueno();
 
-      final ctx = navigatorKey.currentContext;
-      Toast.show("Solicitud aceptada", ctx);
+      _safeToast("Solicitud aceptada");
       notifyListeners();
     } catch (e) {
       debugPrint("Error aceptando solicitud: $e");
       backend.checkAndSignOutOnAuthError(e);
-      final ctx = navigatorKey.currentContext;
-      Toast.show("Error al aceptar solicitud", ctx);
+      _safeToast("Error al aceptar solicitud");
     }
   }
 
@@ -629,14 +664,12 @@ class SaviState extends ChangeNotifier {
       solicitudesUnirse.removeWhere((s) => s['id'] == solicitud['id']);
       // refresh owner's solicitudes list
       await cargarSolicitudesParaDueno();
-      final ctx = navigatorKey.currentContext;
-      Toast.show("Solicitud rechazada", ctx);
+      _safeToast("Solicitud rechazada");
       notifyListeners();
     } catch (e) {
       debugPrint("Error rechazando solicitud: $e");
       backend.checkAndSignOutOnAuthError(e);
-      final ctx = navigatorKey.currentContext;
-      Toast.show("Error al rechazar solicitud", ctx);
+      _safeToast("Error al rechazar solicitud");
     }
   }
 
@@ -653,8 +686,7 @@ class SaviState extends ChangeNotifier {
       } catch (e) {
         debugPrint('Error updating voucher via backend wrapper: $e');
         backend.checkAndSignOutOnAuthError(e);
-        final ctx = navigatorKey.currentContext;
-        if (ctx != null) Toast.show('Error al subir voucher', ctx);
+        _safeToast('Error al subir voucher');
         return;
       }
 
@@ -665,13 +697,11 @@ class SaviState extends ChangeNotifier {
       cupo.voucherUrl = voucherUrl;
       notifyListeners();
 
-      final ctx = navigatorKey.currentContext;
-      Toast.show('Pago registrado', ctx);
+      _safeToast('Pago registrado');
     } catch (e) {
       debugPrint('Error subiendo voucher: $e');
       backend.checkAndSignOutOnAuthError(e);
-      final ctx = navigatorKey.currentContext;
-      Toast.show('Error al subir voucher', ctx);
+      _safeToast('Error al subir voucher');
     }
   }
 }

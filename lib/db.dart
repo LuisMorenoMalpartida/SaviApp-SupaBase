@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'logger.dart';
 //import 'dart:io';
 //import 'package:mime/mime.dart';
 
@@ -47,6 +48,79 @@ class JuntaModel {
   }
 }
 
+class ParticipanteModel {
+  final String id;
+  final String usuarioId;
+  final String juntaId;
+  final String rol;
+  final bool pagoRealizado;
+  final String? voucherUrl;
+
+  ParticipanteModel({
+    required this.id,
+    required this.usuarioId,
+    required this.juntaId,
+    required this.rol,
+    required this.pagoRealizado,
+    this.voucherUrl,
+  });
+
+  factory ParticipanteModel.fromJson(Map<String, dynamic> j) {
+    return ParticipanteModel(
+      id: j['id']?.toString() ?? '',
+      usuarioId: j['usuario_id']?.toString() ?? '',
+      juntaId: j['junta_id']?.toString() ?? '',
+      rol: j['rol']?.toString() ?? '',
+      pagoRealizado:
+          j['pago_realizado'] == true || j['pago_realizado'] == 'true',
+      voucherUrl: j['voucher_url']?.toString(),
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'usuario_id': usuarioId,
+      'junta_id': juntaId,
+      'rol': rol,
+      'pago_realizado': pagoRealizado,
+      'voucher_url': voucherUrl,
+    };
+  }
+}
+
+class PerfilModel {
+  final String id;
+  final String nombre;
+  final String apellido;
+  final String dni;
+  final String telefono;
+  final String? email;
+  final String? avatarUrl;
+
+  PerfilModel({
+    required this.id,
+    required this.nombre,
+    required this.apellido,
+    required this.dni,
+    required this.telefono,
+    this.email,
+    this.avatarUrl,
+  });
+
+  factory PerfilModel.fromJson(Map<String, dynamic> j) {
+    return PerfilModel(
+      id: j['id']?.toString() ?? '',
+      nombre: j['nombre']?.toString() ?? '',
+      apellido: j['apellido']?.toString() ?? '',
+      dni: j['dni']?.toString() ?? '',
+      telefono: j['telefono']?.toString() ?? '',
+      email: j['email']?.toString(),
+      avatarUrl: j['avatar_url']?.toString(),
+    );
+  }
+}
+
 // Parser que puede correr en un isolate mediante `compute`
 List<JuntaModel> _parseJuntas(List<dynamic> data) {
   return data
@@ -57,16 +131,15 @@ List<JuntaModel> _parseJuntas(List<dynamic> data) {
 // Función pública para revisar errores de autenticación y forzar signOut
 void checkAndSignOutOnAuthError(Object e) {
   final s = e.toString();
+  logger.error('[backend] auth-error: $s');
   if (s.contains('refresh_token_not_found') ||
       s.contains('Refresh Token Not Found') ||
       s.contains('refresh token not found')) {
-    // Intenta cerrar sesión localmente y loguea la causa para diagnóstico
     try {
-      debugPrint(
-          '[backend] checkAndSignOutOnAuthError matched, signing out. error="$s"');
+      logger.info('[backend] checkAndSignOutOnAuthError matched, signing out.');
       Supabase.instance.client.auth.signOut();
     } catch (err) {
-      debugPrint('[backend] signOut failed: $err');
+      logger.error('[backend] signOut failed: $err');
     }
   }
 }
@@ -296,7 +369,23 @@ class SaviState extends ChangeNotifier {
           await supabase.from('participantes').select().eq('junta_id', juntaId);
       return (participantes as List<dynamic>);
     } catch (e) {
-      debugPrint('Error obtenerParticipantesPorJunta: $e');
+      logger.error('Error obtenerParticipantesPorJunta: $e');
+      _checkAndSignOutOnAuthError(e);
+      return [];
+    }
+  }
+
+  Future<List<ParticipanteModel>> obtenerParticipantesModelPorJunta(
+      String juntaId) async {
+    try {
+      final participantes =
+          await supabase.from('participantes').select().eq('junta_id', juntaId);
+      final list = (participantes as List<dynamic>?) ?? [];
+      return list
+          .map((e) => ParticipanteModel.fromJson(Map<String, dynamic>.from(e)))
+          .toList();
+    } catch (e) {
+      logger.error('Error obtenerParticipantesModelPorJunta: $e');
       _checkAndSignOutOnAuthError(e);
       return [];
     }
@@ -313,7 +402,7 @@ class SaviState extends ChangeNotifier {
           .eq('estado', 'pendiente');
       return (res as List<dynamic>);
     } catch (e) {
-      debugPrint('Error obtenerSolicitudesPorJuntas: $e');
+      logger.error('Error obtenerSolicitudesPorJuntas: $e');
       _checkAndSignOutOnAuthError(e);
       return [];
     }
@@ -342,7 +431,25 @@ class SaviState extends ChangeNotifier {
           .filter('id', 'in', ids);
       return (perfiles as List<dynamic>);
     } catch (e) {
-      debugPrint('Error obtenerPerfilesPorIds: $e');
+      logger.error('Error obtenerPerfilesPorIds: $e');
+      _checkAndSignOutOnAuthError(e);
+      return [];
+    }
+  }
+
+  Future<List<PerfilModel>> obtenerPerfilesModelPorIds(List<String> ids) async {
+    try {
+      if (ids.isEmpty) return [];
+      final perfiles = await supabase
+          .from('perfiles')
+          .select('id,nombre,apellido,dni,telefono,email,avatar_url')
+          .filter('id', 'in', ids);
+      final list = (perfiles as List<dynamic>?) ?? [];
+      return list
+          .map((e) => PerfilModel.fromJson(Map<String, dynamic>.from(e)))
+          .toList();
+    } catch (e) {
+      logger.error('Error obtenerPerfilesModelPorIds: $e');
       _checkAndSignOutOnAuthError(e);
       return [];
     }
