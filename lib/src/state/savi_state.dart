@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'dart:async';
 
 import '../../db.dart' as backend;
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../parsers/parsers.dart' as parsers;
 import '../utils/navigation.dart';
 import '../utils/toast.dart';
@@ -15,7 +16,7 @@ class SaviState extends ChangeNotifier {
   final backend.SaviState _backend = backend.SaviState();
 
   // Getter para acceder a Supabase (usando tu supabaseClient)
-  final supabase = backend.supabaseClient;
+  final SupabaseClient supabase = backend.supabaseClient;
 
   // Datos de UI
   UserRole rolActual = UserRole.member;
@@ -87,6 +88,8 @@ class SaviState extends ChangeNotifier {
         miIdUsuario = _backend.currentUser!.id;
         rolActual = _backend.esDueno ? UserRole.owner : UserRole.member;
         await cargarJuntas();
+        // refresh owner solicitudes list
+        await cargarSolicitudesParaDueno();
         await cargarPerfil();
       } else {
         miIdUsuario = '';
@@ -105,6 +108,62 @@ class SaviState extends ChangeNotifier {
       notifyListeners();
     } catch (e) {
       debugPrint("Error en _actualizarDesdeBackend: $e");
+    }
+  }
+
+  // Note: realtime subscription removed for compatibility; we refresh owner
+  // solicitudes when the app initializes or when relevant actions occur.
+
+  Future<void> cargarSolicitudesParaDueno() async {
+    try {
+      if (miIdUsuario.isEmpty) return;
+      // Ensure misJuntas updated
+      final ownerJuntas = misJuntas
+          .where((j) => j.creadorId == miIdUsuario)
+          .map((j) => j.id)
+          .toList();
+      if (ownerJuntas.isEmpty) {
+        solicitudesUnirse = [];
+        notifyListeners();
+        return;
+      }
+
+      final unirse = await supabase
+          .from('solicitudes')
+          .select('id,usuario_id,estado,junta_id')
+          .filter('junta_id', 'in', ownerJuntas)
+          .eq('estado', 'pendiente');
+
+      final solicitudes = (unirse as List<dynamic>);
+      final Set<String> ids = solicitudes
+          .map((s) => s['usuario_id']?.toString())
+          .where((id) => id != null)
+          .cast<String>()
+          .toSet();
+
+      Map<String, dynamic> perfilesMap = {};
+      if (ids.isNotEmpty) {
+        final perfiles = await supabase
+            .from('perfiles')
+            .select('id,nombre,apellido,dni,telefono')
+            .filter('id', 'in', ids.toList());
+        for (var perfil in (perfiles as List<dynamic>)) {
+          perfilesMap[perfil['id'].toString()] = perfil;
+        }
+      }
+
+      final combined = solicitudes.map((s) {
+        final copy = Map<String, dynamic>.from(s as Map);
+        copy['perfiles'] = perfilesMap[s['usuario_id']?.toString()] ?? {};
+        return copy;
+      }).toList();
+
+      solicitudesUnirse =
+          await compute(parsers.parseSolicitudes, (combined as List<dynamic>));
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Error cargando solicitudes para dueño: $e');
+      solicitudesUnirse = [];
     }
   }
 
@@ -287,6 +346,9 @@ class SaviState extends ChangeNotifier {
 
       // Cargar solicitudes pendientes
       await cargarSolicitudes(juntaId);
+
+      // Realtime subscription removed for compatibility; rely on explicit
+      // refresh when opening solicitudes or reloading state.
     } catch (e) {
       debugPrint("Error cargando detalles: $e");
     } finally {
@@ -402,8 +464,14 @@ class SaviState extends ChangeNotifier {
         onError: (error) {
           Toast.show(error, navigatorKey.currentContext);
         },
-        onSuccess: () {
+        onSuccess: () async {
           Toast.show("Junta creada exitosamente", navigatorKey.currentContext);
+          // Refrescar la lista de juntas para que la UI (Home) se actualice
+          try {
+            await cargarJuntas();
+          } catch (e) {
+            debugPrint('Error refrescando juntas tras creación: $e');
+          }
         },
       );
     } catch (e) {
@@ -445,20 +513,27 @@ class SaviState extends ChangeNotifier {
 
   Future<void> aceptarSolicitud(dynamic solicitud) async {
     try {
-      if (juntaSeleccionada == null) return;
+      final juntaId = solicitud['junta_id'] ?? juntaSeleccionada?.id;
+      if (juntaId == null) return;
 
       await supabase
           .from('solicitudes')
           .update({'estado': 'aprobada'}).eq('id', solicitud['id']);
 
       await supabase.from('participantes').insert({
-        'junta_id': juntaSeleccionada!.id,
+        'junta_id': juntaId,
         'usuario_id': solicitud['usuario_id'],
         'rol': 'miembro',
       });
 
       solicitudesUnirse.removeWhere((s) => s['id'] == solicitud['id']);
-      await cargarParticipantes(juntaSeleccionada!.id);
+      // refresh participants for the affected junta if selected, otherwise skip
+      if (juntaSeleccionada != null && juntaSeleccionada!.id == juntaId) {
+        await cargarParticipantes(juntaId);
+      }
+
+      // Also refresh owner's solicitudes list
+      await cargarSolicitudesParaDueno();
 
       final ctx = navigatorKey.currentContext;
       Toast.show("Solicitud aceptada", ctx);
@@ -478,6 +553,8 @@ class SaviState extends ChangeNotifier {
           .update({'estado': 'rechazada'}).eq('id', solicitud['id']);
 
       solicitudesUnirse.removeWhere((s) => s['id'] == solicitud['id']);
+      // refresh owner's solicitudes list
+      await cargarSolicitudesParaDueno();
       final ctx = navigatorKey.currentContext;
       Toast.show("Solicitud rechazada", ctx);
       notifyListeners();

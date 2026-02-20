@@ -258,6 +258,8 @@ class _CrearTabState extends State<CrearTab> {
   }
 
   Widget _buildPeriodDropdown() {
+    const periodoOptions = ['Mensual', 'Semanal', 'Quincenal'];
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: BoxDecoration(
@@ -267,13 +269,14 @@ class _CrearTabState extends State<CrearTab> {
       ),
       child: DropdownButtonHideUnderline(
         child: DropdownButton<String?>(
-          value: _periodo,
+          value: (_periodo != null && periodoOptions.contains(_periodo))
+              ? _periodo
+              : null,
           hint: const Text('Periodo de pago'),
           items: const [
             DropdownMenuItem(value: 'Mensual', child: Text('Mensual')),
             DropdownMenuItem(value: 'Semanal', child: Text('Semanal')),
             DropdownMenuItem(value: 'Quincenal', child: Text('Quincenal')),
-            DropdownMenuItem(value: 'Anual', child: Text('Anual')),
           ],
           onChanged: (v) => setState(() => _periodo = v),
         ),

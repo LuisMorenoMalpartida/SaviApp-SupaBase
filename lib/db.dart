@@ -379,11 +379,62 @@ class SaviState extends ChangeNotifier {
     try {
       isLoading = true;
       notifyListeners();
-      final junta = await supabase
+      final cleaned = codigo.trim();
+      debugPrint('[backend] unirseAJunta buscar codigo="$cleaned"');
+      if (cleaned.isEmpty) {
+        onError('Código vacío');
+        return;
+      }
+
+      var junta = await supabase
           .from('juntas')
-          .select('id')
-          .eq('codigo_acceso', codigo)
+          .select('id,codigo_acceso')
+          .eq('codigo_acceso', cleaned)
           .maybeSingle();
+
+      // Try case-insensitive lookup if exact match failed
+      if (junta == null) {
+        final pattern = '%$cleaned%';
+        debugPrint('[backend] trying ilike with pattern="$pattern"');
+        try {
+          junta = await supabase
+              .from('juntas')
+              .select('id,codigo_acceso')
+              .filter('codigo_acceso', 'ilike', pattern)
+              .maybeSingle();
+        } catch (e) {
+          debugPrint('[backend] ilike search failed: $e');
+        }
+      }
+
+      // If still null, fetch recent codes and try a client-side match for diagnostics
+      if (junta == null) {
+        try {
+          final recent = await supabase
+              .from('juntas')
+              .select('id,codigo_acceso')
+              .order('creado_at', ascending: false)
+              .limit(50);
+          debugPrint(
+              '[backend] recent joined codes (sample): ${recent is List ? (recent.map((r) => r['codigo_acceso']).toList()) : recent}');
+
+          if (recent is List) {
+            for (var r in recent) {
+              final code = (r['codigo_acceso'] ?? '').toString().trim();
+              if (code.toLowerCase() == cleaned.toLowerCase()) {
+                debugPrint(
+                    '[backend] client-side matched code="$code" id=${r['id']}');
+                junta = r;
+                break;
+              }
+            }
+          }
+        } catch (e) {
+          debugPrint('[backend] recent codes debug failed: $e');
+        }
+      }
+
+      debugPrint('[backend] unirseAJunta result for "$cleaned": $junta');
 
       if (junta == null) {
         onError("Código no existe");

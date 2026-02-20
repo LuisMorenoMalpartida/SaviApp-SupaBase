@@ -20,6 +20,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final FocusNode _codigoFocus = FocusNode();
   XFile? _qrImage;
   final ImagePicker _imagePicker = ImagePicker();
+  bool _navigating = false;
 
   @override
   void initState() {
@@ -40,20 +41,49 @@ class _HomeScreenState extends State<HomeScreen> {
         centerTitle: true,
         backgroundColor: Colors.white,
         elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.orange),
+        iconTheme: const IconThemeData(color: Colors.blue),
         title: SvgPicture.asset('assets/logo2.svg', height: 56),
         actions: [
-          IconButton(
-            onPressed: () => state.logout(),
-            icon: const Icon(Icons.logout),
-          )
+          Consumer<SaviState>(builder: (ctx, s, _) {
+            if (!s.esDueno) return const SizedBox.shrink();
+            final count = s.solicitudesUnirse.length;
+            return IconButton(
+              onPressed: () => Navigator.pushNamed(context, '/solicitudes'),
+              icon: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  const Icon(Icons.notifications_none, color: Colors.blue),
+                  if (count > 0)
+                    Positioned(
+                      right: -6,
+                      top: -6,
+                      child: Container(
+                        padding: const EdgeInsets.all(2),
+                        decoration: BoxDecoration(
+                          color: Colors.redAccent,
+                          shape: BoxShape.circle,
+                        ),
+                        constraints:
+                            const BoxConstraints(minWidth: 16, minHeight: 16),
+                        child: Center(
+                          child: Text('$count',
+                              style: const TextStyle(
+                                  color: Colors.white, fontSize: 10)),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            );
+          }),
+          // Logout moved to Perfil tab; AppBar only shows notifications bell now.
         ],
       ),
       body: _buildBody(state),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
         onTap: (i) => setState(() => _currentIndex = i),
-        selectedItemColor: Colors.orange,
+        selectedItemColor: Colors.green,
         unselectedItemColor: Colors.grey,
         type: BottomNavigationBarType.fixed,
         items: const [
@@ -85,80 +115,88 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildTabInicio(SaviState state) {
     return Padding(
       padding: const EdgeInsets.all(24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _greetingCard(state),
-          const SizedBox(height: 12),
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _greetingCard(state),
+            const SizedBox(height: 12),
 
-          // Summary card (Juntas activas) - listen only to juntasActivas
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(12.0),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Juntas activas',
-                          style: Theme.of(context).textTheme.titleSmall),
-                      Selector<SaviState, int>(
-                        selector: (_, s) => s.juntasActivas,
-                        builder: (_, juntasActivas, __) =>
-                            Text('$juntasActivas'),
-                      ),
-                    ],
-                  ),
-                  const SizedBox.shrink(),
-                ],
+            // Summary card (Juntas activas) - listen only to juntasActivas
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12.0),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Juntas activas',
+                            style: Theme.of(context).textTheme.titleSmall),
+                        Selector<SaviState, int>(
+                          selector: (_, s) => s.juntasActivas,
+                          builder: (_, juntasActivas, __) =>
+                              Text('$juntasActivas'),
+                        ),
+                      ],
+                    ),
+                    const SizedBox.shrink(),
+                  ],
+                ),
               ),
             ),
-          ),
-          const SizedBox(height: 20),
+            const SizedBox(height: 20),
 
-          // Prompt
-          Text('¿Que deberiamos hacer hoy?',
-              style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 16),
+            // Prompt
+            Text('¿Que deberiamos hacer hoy?',
+                style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 16),
 
-          // Action buttons
-          Row(
-            children: [
-              _actionButton(
-                  'CREAR JUNTA', () => setState(() => _currentIndex = 1)),
-              const SizedBox(width: 12),
-              _actionButton('BUSCAR', () {
-                setState(() => _currentIndex = 0);
-                FocusScope.of(context).requestFocus(_codigoFocus);
-              }),
-            ],
-          ),
+            // Action buttons
+            Row(
+              children: [
+                _actionButton(
+                    'CREAR JUNTA', () => setState(() => _currentIndex = 1)),
+                const SizedBox(width: 12),
+                _actionButton('BUSCAR', () {
+                  setState(() => _currentIndex = 0);
+                  FocusScope.of(context).requestFocus(_codigoFocus);
+                }),
+              ],
+            ),
 
-          // Join section (inline Unirse)
-          const SizedBox(height: 18),
-          _unirseSection(state),
-          const SizedBox(height: 20),
+            // Join section (inline Unirse)
+            const SizedBox(height: 18),
+            _unirseSection(state),
+            const SizedBox(height: 20),
 
-          // Mis Juntas header (fixed) and scrollable list below
-          Text('Mis Juntas', style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 8),
+            // Mis Juntas header (fixed) and scrollable list below
+            Text('Mis Juntas', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 8),
 
-          // Only this list scrolls
-          Expanded(
-            child: Consumer<SaviState>(builder: (ctx, s, _) {
+            // List (shrinkWrapped inside the scroll view)
+            Consumer<SaviState>(builder: (ctx, s, _) {
               final list = s.misJuntas;
               if (list.isEmpty)
                 return const Center(child: Text('Aún no tienes juntas'));
               return ListView.separated(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
                 itemCount: list.length,
                 separatorBuilder: (_, __) => const SizedBox(height: 8),
                 itemBuilder: (ctx, i) {
                   final junta = list[i];
                   return GestureDetector(
                     onTap: () async {
-                      await s.seleccionarJunta(junta);
-                      Navigator.pushNamed(context, '/detalles');
+                      if (_navigating) return;
+                      _navigating = true;
+                      try {
+                        await s.seleccionarJunta(junta);
+                        await Navigator.pushNamed(context, '/detalles');
+                      } finally {
+                        _navigating = false;
+                      }
                     },
                     child: Container(
                       decoration: BoxDecoration(
@@ -256,8 +294,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 },
               );
             }),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -289,7 +327,7 @@ class _HomeScreenState extends State<HomeScreen> {
             width: 48,
             height: 48,
             decoration: BoxDecoration(
-              color: Colors.orange,
+              color: Colors.green,
               borderRadius: BorderRadius.circular(12),
             ),
             child: const Center(
@@ -325,7 +363,7 @@ class _HomeScreenState extends State<HomeScreen> {
       children: [
         Row(
           children: [
-            const Icon(Icons.qr_code_scanner, color: Colors.orange),
+            const Icon(Icons.qr_code_scanner, color: Colors.green),
             const SizedBox(width: 8),
             Text('Unirse a juntas',
                 style: Theme.of(context).textTheme.titleMedium),
@@ -340,7 +378,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 focusNode: _codigoFocus,
                 decoration: InputDecoration(
                   labelText: 'Código de la junta',
-                  prefixIcon: const Icon(Icons.vpn_key, color: Colors.orange),
+                  prefixIcon: const Icon(Icons.vpn_key, color: Colors.blue),
                   filled: true,
                   fillColor: Colors.grey[50],
                   border: OutlineInputBorder(
@@ -351,7 +389,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       borderSide: BorderSide(color: Colors.grey.shade300)),
                   focusedBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(color: Colors.orange)),
+                      borderSide: const BorderSide(color: Colors.green)),
                 ),
               ),
             ),
@@ -361,14 +399,14 @@ class _HomeScreenState extends State<HomeScreen> {
               height: 44,
               child: ElevatedButton(
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.orange,
-                  foregroundColor: Colors.black,
+                  backgroundColor: Colors.blue,
+                  foregroundColor: Colors.white,
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(10)),
                   padding: EdgeInsets.zero,
                 ),
                 onPressed: _pickQrImage,
-                child: const Icon(Icons.qr_code, size: 22),
+                child: const Icon(Icons.qr_code, color: Colors.white, size: 22),
               ),
             ),
             const SizedBox(width: 8),

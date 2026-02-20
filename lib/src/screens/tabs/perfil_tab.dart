@@ -54,7 +54,6 @@ class _PerfilTabState extends State<PerfilTab> {
         const Text('Mi perfil',
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
         const SizedBox(height: 12),
-
         if (!_editing)
           Consumer<SaviState>(builder: (ctx, state, _) {
             return Column(
@@ -151,12 +150,11 @@ class _PerfilTabState extends State<PerfilTab> {
                     ),
                   ),
                 ),
-
                 const SizedBox(height: 20),
                 const Text('Información Personal',
-                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                    style:
+                        TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
                 const SizedBox(height: 12),
-
                 Card(
                   child: ListTile(
                     leading: Container(
@@ -184,7 +182,8 @@ class _PerfilTabState extends State<PerfilTab> {
                         color: Colors.indigo.shade50,
                         shape: BoxShape.circle,
                       ),
-                      child: Icon(Icons.person_outline, color: Colors.indigo.shade700),
+                      child: Icon(Icons.person_outline,
+                          color: Colors.indigo.shade700),
                     ),
                     title: Text(state.perfilApellido.isNotEmpty
                         ? state.perfilApellido
@@ -204,7 +203,8 @@ class _PerfilTabState extends State<PerfilTab> {
                       ),
                       child: Icon(Icons.badge, color: Colors.green.shade700),
                     ),
-                    title: Text(state.perfilDni.isNotEmpty ? state.perfilDni : '—'),
+                    title: Text(
+                        state.perfilDni.isNotEmpty ? state.perfilDni : '—'),
                     subtitle: const Text('DNI'),
                   ),
                 ),
@@ -220,7 +220,9 @@ class _PerfilTabState extends State<PerfilTab> {
                       ),
                       child: Icon(Icons.phone, color: Colors.teal.shade700),
                     ),
-                    title: Text(state.perfilTelefono.isNotEmpty ? state.perfilTelefono : '—'),
+                    title: Text(state.perfilTelefono.isNotEmpty
+                        ? state.perfilTelefono
+                        : '—'),
                     subtitle: const Text('Teléfono'),
                   ),
                 ),
@@ -238,10 +240,13 @@ class _PerfilTabState extends State<PerfilTab> {
                   backgroundImage: _pickedImage != null
                       ? FileImage(File(_pickedImage!.path))
                       : (backendState.perfilAvatar.isNotEmpty
-                          ? NetworkImage(backendState.perfilAvatar) as ImageProvider
+                          ? NetworkImage(backendState.perfilAvatar)
+                              as ImageProvider
                           : null),
-                  child: (_pickedImage == null && backendState.perfilAvatar.isEmpty)
-                      ? Icon(Icons.person, size: 44, color: Colors.grey.shade600)
+                  child: (_pickedImage == null &&
+                          backendState.perfilAvatar.isEmpty)
+                      ? Icon(Icons.person,
+                          size: 44, color: Colors.grey.shade600)
                       : null,
                 ),
                 const SizedBox(height: 8),
@@ -268,11 +273,13 @@ class _PerfilTabState extends State<PerfilTab> {
                                 setState(() => _uploadingImage = true);
                                 try {
                                   try {
-                                    await backendState.subirAvatar(_pickedImage!.path);
+                                    await backendState
+                                        .subirAvatar(_pickedImage!.path);
                                     await backendState.cargarPerfil();
                                     if (!mounted) return;
                                     ScaffoldMessenger.of(context).showSnackBar(
-                                        const SnackBar(content: Text('Imagen cambiada')));
+                                        const SnackBar(
+                                            content: Text('Imagen cambiada')));
                                     setState(() => _pickedImage = null);
                                   } catch (e) {
                                     if (!mounted) return;
@@ -306,25 +313,29 @@ class _PerfilTabState extends State<PerfilTab> {
               ],
             ),
           ),
-
           TextField(
             controller: _nombreCtrl,
-            decoration: InputDecoration(labelText: 'Nombre', prefixIcon: const Icon(Icons.person)),
+            decoration: InputDecoration(
+                labelText: 'Nombre', prefixIcon: const Icon(Icons.person)),
           ),
           const SizedBox(height: 12),
           TextField(
             controller: _apellidoCtrl,
-            decoration: InputDecoration(labelText: 'Apellido', prefixIcon: const Icon(Icons.person_outline)),
+            decoration: InputDecoration(
+                labelText: 'Apellido',
+                prefixIcon: const Icon(Icons.person_outline)),
           ),
           const SizedBox(height: 12),
           TextField(
             controller: _dniCtrl,
-            decoration: InputDecoration(labelText: 'DNI', prefixIcon: const Icon(Icons.badge)),
+            decoration: InputDecoration(
+                labelText: 'DNI', prefixIcon: const Icon(Icons.badge)),
           ),
           const SizedBox(height: 12),
           TextField(
             controller: _telefonoCtrl,
-            decoration: InputDecoration(labelText: 'Teléfono', prefixIcon: const Icon(Icons.phone)),
+            decoration: InputDecoration(
+                labelText: 'Teléfono', prefixIcon: const Icon(Icons.phone)),
             keyboardType: TextInputType.phone,
           ),
           const SizedBox(height: 16),
@@ -360,6 +371,41 @@ class _PerfilTabState extends State<PerfilTab> {
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: 24),
+          SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red.shade700,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8)),
+              ),
+              onPressed: () async {
+                final confirmed = await showDialog<bool>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: const Text('Cerrar sesión'),
+                    content: const Text('¿Deseas cerrar la sesión?'),
+                    actions: [
+                      TextButton(
+                          onPressed: () => Navigator.pop(ctx, false),
+                          child: const Text('Cancelar')),
+                      ElevatedButton(
+                          onPressed: () => Navigator.pop(ctx, true),
+                          child: const Text('Cerrar sesión')),
+                    ],
+                  ),
+                );
+                if (confirmed == true) {
+                  await backendState.logout();
+                }
+              },
+              icon: const Icon(Icons.logout),
+              label: const Text('Cerrar sesión'),
+            ),
           ),
         ],
       ],
