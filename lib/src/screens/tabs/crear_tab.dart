@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../../state/savi_state.dart';
+import 'package:flutter/services.dart';
 
 class CrearTab extends StatefulWidget {
   const CrearTab({super.key});
@@ -149,6 +150,43 @@ class _CrearTabState extends State<CrearTab> {
               ),
             ),
           ),
+          // Show the last created code card if present
+          if (state.ultimoCodigoCreado != null &&
+              state.ultimoCodigoCreado!.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Card(
+              color: Colors.green.shade50,
+              child: Padding(
+                padding: const EdgeInsets.all(12.0),
+                child: Row(
+                  children: [
+                    Expanded(
+                        child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Código creado',
+                            style: TextStyle(fontWeight: FontWeight.w700)),
+                        const SizedBox(height: 6),
+                        SelectableText(state.ultimoCodigoCreado ?? ''),
+                      ],
+                    )),
+                    IconButton(
+                      onPressed: () {
+                        Clipboard.setData(ClipboardData(
+                            text: state.ultimoCodigoCreado ?? ''));
+                      },
+                      icon: const Icon(Icons.copy),
+                    ),
+                    IconButton(
+                        onPressed: () {
+                          state.clearUltimoCodigoCreado();
+                        },
+                        icon: const Icon(Icons.close)),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );

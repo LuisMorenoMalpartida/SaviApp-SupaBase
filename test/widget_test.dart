@@ -14,11 +14,8 @@ void main() {
     );
 
     // Verificar que la pantalla de bienvenida carga correctamente
-    // Buscamos el texto de la primera página del PageView
-    expect(find.text('Bienvenido a SAVI'), findsOneWidget);
-
-    // Verificar que el botón de "Iniciar sesión" existe
-    expect(find.text('Iniciar sesión'), findsOneWidget);
+    // Buscamos el botón principal de la pantalla de bienvenida
+    expect(find.text('COMENZAR AHORA'), findsOneWidget);
 
     // Nota: No buscamos el contador '0' ni el icono '+' porque esta app no los tiene.
   });

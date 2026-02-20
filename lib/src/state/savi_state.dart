@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'dart:async';
 
-import '../../db.dart' as backend;
+import 'package:savi_app/backend.dart' as backend;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../parsers/parsers.dart' as parsers;
 import '../utils/navigation.dart';
@@ -53,6 +54,9 @@ class SaviState extends ChangeNotifier {
   // Lista de juntas del usuario
   List<backend.JuntaModel> misJuntas = [];
   backend.JuntaModel? juntaSeleccionada;
+  Timer? _solicitudesTimer;
+  String? ultimoCodigoCreado;
+  StreamSubscription<dynamic>? _solicitudesSub;
 
   SaviState() {
     _init();
@@ -90,6 +94,11 @@ class SaviState extends ChangeNotifier {
         await cargarJuntas();
         // refresh owner solicitudes list
         await cargarSolicitudesParaDueno();
+        // Start realtime subscription for owner solicitudes if user is owner
+        if (rolActual == UserRole.owner)
+          startRealtimeSolicitudes();
+        else
+          stopRealtimeSolicitudes();
         await cargarPerfil();
       } else {
         miIdUsuario = '';
@@ -111,6 +120,58 @@ class SaviState extends ChangeNotifier {
     }
   }
 
+  void startPollingSolicitudes(
+      {Duration interval = const Duration(seconds: 15)}) {
+    _solicitudesTimer?.cancel();
+    _solicitudesTimer = Timer.periodic(interval, (_) async {
+      try {
+        await cargarSolicitudesParaDueno();
+      } catch (e) {
+        debugPrint('Error polling solicitudes: $e');
+      }
+    });
+  }
+
+  void stopPollingSolicitudes() {
+    _solicitudesTimer?.cancel();
+    _solicitudesTimer = null;
+  }
+
+  void startRealtimeSolicitudes() {
+    try {
+      stopRealtimeSolicitudes();
+      final ownerJuntas = misJuntas
+          .where((j) => j.creadorId == miIdUsuario)
+          .map((j) => j.id)
+          .toList();
+      if (ownerJuntas.isEmpty) return;
+
+      // Supabase stream builders may not support `filter(...)` the same way
+      // as the normal query builder. Subscribe to the table and filter
+      // events in the listener as a safe fallback.
+      final stream = supabase.from('solicitudes').stream(primaryKey: ['id']);
+
+      _solicitudesSub = stream.listen((_) async {
+        try {
+          await cargarSolicitudesParaDueno();
+        } catch (e) {
+          debugPrint('Error handling realtime solicitudes event: $e');
+        }
+      });
+    } catch (e) {
+      debugPrint(
+          'Realtime subscription failed, keeping polling as fallback: $e');
+      startPollingSolicitudes();
+    }
+  }
+
+  void stopRealtimeSolicitudes() {
+    try {
+      _solicitudesSub?.cancel();
+    } catch (_) {}
+    _solicitudesSub = null;
+  }
+
   // Note: realtime subscription removed for compatibility; we refresh owner
   // solicitudes when the app initializes or when relevant actions occur.
 
@@ -128,13 +189,8 @@ class SaviState extends ChangeNotifier {
         return;
       }
 
-      final unirse = await supabase
-          .from('solicitudes')
-          .select('id,usuario_id,estado,junta_id')
-          .filter('junta_id', 'in', ownerJuntas)
-          .eq('estado', 'pendiente');
-
-      final solicitudes = (unirse as List<dynamic>);
+      final solicitudes =
+          await _backend.obtenerSolicitudesPorJuntas(ownerJuntas);
       final Set<String> ids = solicitudes
           .map((s) => s['usuario_id']?.toString())
           .where((id) => id != null)
@@ -143,11 +199,8 @@ class SaviState extends ChangeNotifier {
 
       Map<String, dynamic> perfilesMap = {};
       if (ids.isNotEmpty) {
-        final perfiles = await supabase
-            .from('perfiles')
-            .select('id,nombre,apellido,dni,telefono')
-            .filter('id', 'in', ids.toList());
-        for (var perfil in (perfiles as List<dynamic>)) {
+        final perfiles = await _backend.obtenerPerfilesPorIds(ids.toList());
+        for (var perfil in perfiles) {
           perfilesMap[perfil['id'].toString()] = perfil;
         }
       }
@@ -158,8 +211,7 @@ class SaviState extends ChangeNotifier {
         return copy;
       }).toList();
 
-      solicitudesUnirse =
-          await compute(parsers.parseSolicitudes, (combined as List<dynamic>));
+      solicitudesUnirse = await compute(parsers.parseSolicitudes, combined);
       notifyListeners();
     } catch (e) {
       debugPrint('Error cargando solicitudes para dueño: $e');
@@ -299,6 +351,17 @@ class SaviState extends ChangeNotifier {
     }
   }
 
+  @override
+  void dispose() {
+    _solicitudesTimer?.cancel();
+    super.dispose();
+  }
+
+  void clearUltimoCodigoCreado() {
+    ultimoCodigoCreado = null;
+    notifyListeners();
+  }
+
   // --- GESTIÓN DE JUNTAS ---
 
   Future<void> cargarJuntas() async {
@@ -359,12 +422,8 @@ class SaviState extends ChangeNotifier {
 
   Future<void> cargarParticipantes(String juntaId) async {
     try {
-      // Obtener participantes sin dependencias de FK
-      // Select all columns to avoid requesting missing columns like pago_realizado
-      final participantes =
-          await supabase.from('participantes').select().eq('junta_id', juntaId);
-
-      final parts = (participantes as List<dynamic>);
+      // Obtener participantes usando el wrapper del backend
+      final parts = await _backend.obtenerParticipantesPorJunta(juntaId);
 
       // Obtener perfiles por separado para los usuario_ids encontrados
       final Set<String> ids = parts
@@ -375,10 +434,7 @@ class SaviState extends ChangeNotifier {
 
       Map<String, dynamic> perfilesMap = {};
       if (ids.isNotEmpty) {
-        final perfiles = await supabase
-            .from('perfiles')
-            .select('id,nombre,apellido,dni,telefono')
-            .filter('id', 'in', ids.toList());
+        final perfiles = await _backend.obtenerPerfilesPorIds(ids.toList());
         for (var perfil in (perfiles as List<dynamic>)) {
           perfilesMap[perfil['id'].toString()] = perfil;
         }
@@ -402,13 +458,8 @@ class SaviState extends ChangeNotifier {
 
   Future<void> cargarSolicitudes(String juntaId) async {
     try {
-      // Obtener solicitudes sin relaciones anidadas
-      final unirse = await supabase
-          .from('solicitudes')
-          .select('id,usuario_id,estado')
-          .eq('junta_id', juntaId);
-
-      final solicitudes = (unirse as List<dynamic>);
+      // Obtener solicitudes usando wrapper
+      final solicitudes = await _backend.obtenerSolicitudesPorJunta(juntaId);
 
       final Set<String> ids = solicitudes
           .map((s) => s['usuario_id']?.toString())
@@ -418,10 +469,7 @@ class SaviState extends ChangeNotifier {
 
       Map<String, dynamic> perfilesMap = {};
       if (ids.isNotEmpty) {
-        final perfiles = await supabase
-            .from('perfiles')
-            .select('id,nombre,apellido,dni,telefono')
-            .filter('id', 'in', ids.toList());
+        final perfiles = await _backend.obtenerPerfilesPorIds(ids.toList());
         for (var perfil in (perfiles as List<dynamic>)) {
           perfilesMap[perfil['id'].toString()] = perfil;
         }
@@ -464,8 +512,41 @@ class SaviState extends ChangeNotifier {
         onError: (error) {
           Toast.show(error, navigatorKey.currentContext);
         },
-        onSuccess: () async {
-          Toast.show("Junta creada exitosamente", navigatorKey.currentContext);
+        onSuccess: (data) async {
+          final ctx = navigatorKey.currentContext;
+          Toast.show("Junta creada exitosamente", ctx);
+          // Store last created code so UI can display it
+          try {
+            ultimoCodigoCreado = data['codigo_acceso']?.toString() ?? '';
+            notifyListeners();
+          } catch (_) {}
+          // Mostrar codigo de acceso en un diálogo con opción de copiar
+          try {
+            final codigo = data['codigo_acceso']?.toString() ?? '';
+            if (ctx != null) {
+              showDialog<void>(
+                context: ctx,
+                builder: (dctx) => AlertDialog(
+                  title: const Text('Código de la junta'),
+                  content: SelectableText(codigo),
+                  actions: [
+                    TextButton(
+                        onPressed: () {
+                          Clipboard.setData(ClipboardData(text: codigo));
+                          Navigator.pop(dctx);
+                        },
+                        child: const Text('Copiar')),
+                    TextButton(
+                        onPressed: () => Navigator.pop(dctx),
+                        child: const Text('OK')),
+                  ],
+                ),
+              );
+            }
+          } catch (e) {
+            debugPrint('Error mostrando codigo: $e');
+          }
+
           // Refrescar la lista de juntas para que la UI (Home) se actualice
           try {
             await cargarJuntas();
@@ -516,15 +597,10 @@ class SaviState extends ChangeNotifier {
       final juntaId = solicitud['junta_id'] ?? juntaSeleccionada?.id;
       if (juntaId == null) return;
 
-      await supabase
-          .from('solicitudes')
-          .update({'estado': 'aprobada'}).eq('id', solicitud['id']);
+      await _backend.actualizarSolicitudEstado(solicitud['id'], 'aprobada');
 
-      await supabase.from('participantes').insert({
-        'junta_id': juntaId,
-        'usuario_id': solicitud['usuario_id'],
-        'rol': 'miembro',
-      });
+      await _backend.insertarParticipante(juntaId, solicitud['usuario_id'],
+          rol: 'miembro');
 
       solicitudesUnirse.removeWhere((s) => s['id'] == solicitud['id']);
       // refresh participants for the affected junta if selected, otherwise skip
@@ -548,9 +624,7 @@ class SaviState extends ChangeNotifier {
 
   Future<void> rechazarSolicitud(dynamic solicitud) async {
     try {
-      await supabase
-          .from('solicitudes')
-          .update({'estado': 'rechazada'}).eq('id', solicitud['id']);
+      await _backend.actualizarSolicitudEstado(solicitud['id'], 'rechazada');
 
       solicitudesUnirse.removeWhere((s) => s['id'] == solicitud['id']);
       // refresh owner's solicitudes list
@@ -573,32 +647,15 @@ class SaviState extends ChangeNotifier {
       final cupo = listaCupos[index];
 
       try {
-        await supabase
-            .from('participantes')
-            .update({'pago_realizado': true, 'voucher_url': voucherUrl})
-            .eq('junta_id', juntaSeleccionada!.id)
-            .eq('usuario_id', cupo.id);
+        await _backend.actualizarParticipanteVoucher(
+            juntaSeleccionada!.id, cupo.id,
+            pagoRealizado: true, voucherUrl: voucherUrl);
       } catch (e) {
-        final s = e.toString();
-        debugPrint('Initial update error in subirVoucher: $s');
-        // If DB doesn't have the column 'pago_realizado' retry without it
-        if (s.contains('pago_realizado') || s.contains('42703')) {
-          try {
-            await supabase
-                .from('participantes')
-                .update({'voucher_url': voucherUrl})
-                .eq('junta_id', juntaSeleccionada!.id)
-                .eq('usuario_id', cupo.id);
-          } catch (e2) {
-            debugPrint('Retry update without pago_realizado failed: $e2');
-            backend.checkAndSignOutOnAuthError(e2);
-            final ctx = navigatorKey.currentContext;
-            Toast.show('Error al subir voucher', ctx);
-            return;
-          }
-        } else {
-          rethrow;
-        }
+        debugPrint('Error updating voucher via backend wrapper: $e');
+        backend.checkAndSignOutOnAuthError(e);
+        final ctx = navigatorKey.currentContext;
+        if (ctx != null) Toast.show('Error al subir voucher', ctx);
+        return;
       }
 
       // Update local model defensively

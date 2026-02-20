@@ -4,7 +4,13 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 //import 'package:mime/mime.dart';
 
 // --- ACCESO GLOBAL A LA DB ---
-final supabase = Supabase.instance.client;
+// Allow injecting a test double for the Supabase client during tests.
+dynamic supabase = Supabase.instance.client;
+
+/// Replace the active supabase client (used for testing/mocking)
+void setSupabaseClient(dynamic client) {
+  supabase = client;
+}
 
 // --- MODELOS DE DATOS ---
 class JuntaModel {
@@ -166,7 +172,7 @@ class SaviState extends ChangeNotifier {
       required int cantidad,
       String moneda = 'Soles',
       required Function(String) onError,
-      required Function() onSuccess}) async {
+      required Function(Map<String, dynamic>) onSuccess}) async {
     if (currentUser == null) return;
     try {
       isLoading = true;
@@ -194,6 +200,9 @@ class SaviState extends ChangeNotifier {
           .select()
           .single();
 
+      // Notify caller with created junta data (contains codigo_acceso)
+      onSuccess(Map<String, dynamic>.from(data));
+
       await supabase.from('participantes').insert({
         'junta_id': data['id'],
         'usuario_id': currentUser!.id,
@@ -201,7 +210,6 @@ class SaviState extends ChangeNotifier {
       });
 
       await cargarMisJuntas();
-      onSuccess();
     } catch (e) {
       onError("Error al crear: $e");
       _checkAndSignOutOnAuthError(e);
@@ -278,6 +286,131 @@ class SaviState extends ChangeNotifier {
       debugPrint('Error obteniendo perfil: $e');
       _checkAndSignOutOnAuthError(e);
       return null;
+    }
+  }
+
+  // --- WRAPPERS ADICIONALES PARA PARTICIPANTES / SOLICITUDES / PERFILES ---
+  Future<List<dynamic>> obtenerParticipantesPorJunta(String juntaId) async {
+    try {
+      final participantes =
+          await supabase.from('participantes').select().eq('junta_id', juntaId);
+      return (participantes as List<dynamic>);
+    } catch (e) {
+      debugPrint('Error obtenerParticipantesPorJunta: $e');
+      _checkAndSignOutOnAuthError(e);
+      return [];
+    }
+  }
+
+  Future<List<dynamic>> obtenerSolicitudesPorJuntas(
+      List<dynamic> juntaIds) async {
+    try {
+      if (juntaIds.isEmpty) return [];
+      final res = await supabase
+          .from('solicitudes')
+          .select('id,usuario_id,estado,junta_id')
+          .filter('junta_id', 'in', juntaIds)
+          .eq('estado', 'pendiente');
+      return (res as List<dynamic>);
+    } catch (e) {
+      debugPrint('Error obtenerSolicitudesPorJuntas: $e');
+      _checkAndSignOutOnAuthError(e);
+      return [];
+    }
+  }
+
+  Future<List<dynamic>> obtenerSolicitudesPorJunta(String juntaId) async {
+    try {
+      final res = await supabase
+          .from('solicitudes')
+          .select('id,usuario_id,estado')
+          .eq('junta_id', juntaId);
+      return (res as List<dynamic>);
+    } catch (e) {
+      debugPrint('Error obtenerSolicitudesPorJunta: $e');
+      _checkAndSignOutOnAuthError(e);
+      return [];
+    }
+  }
+
+  Future<List<dynamic>> obtenerPerfilesPorIds(List<String> ids) async {
+    try {
+      if (ids.isEmpty) return [];
+      final perfiles = await supabase
+          .from('perfiles')
+          .select('id,nombre,apellido,dni,telefono')
+          .filter('id', 'in', ids);
+      return (perfiles as List<dynamic>);
+    } catch (e) {
+      debugPrint('Error obtenerPerfilesPorIds: $e');
+      _checkAndSignOutOnAuthError(e);
+      return [];
+    }
+  }
+
+  Future<void> actualizarSolicitudEstado(
+      String solicitudId, String estado) async {
+    try {
+      await supabase
+          .from('solicitudes')
+          .update({'estado': estado}).eq('id', solicitudId);
+    } catch (e) {
+      debugPrint('Error actualizarSolicitudEstado: $e');
+      _checkAndSignOutOnAuthError(e);
+      rethrow;
+    }
+  }
+
+  Future<void> insertarParticipante(String juntaId, String usuarioId,
+      {String rol = 'miembro'}) async {
+    try {
+      await supabase.from('participantes').insert({
+        'junta_id': juntaId,
+        'usuario_id': usuarioId,
+        'rol': rol,
+      });
+    } catch (e) {
+      debugPrint('Error insertarParticipante: $e');
+      _checkAndSignOutOnAuthError(e);
+      rethrow;
+    }
+  }
+
+  Future<void> actualizarParticipanteVoucher(String juntaId, String usuarioId,
+      {bool? pagoRealizado, String? voucherUrl}) async {
+    try {
+      final payload = <String, dynamic>{};
+      if (pagoRealizado != null) payload['pago_realizado'] = pagoRealizado;
+      if (voucherUrl != null) payload['voucher_url'] = voucherUrl;
+      if (payload.isEmpty) return;
+      try {
+        await supabase
+            .from('participantes')
+            .update(payload)
+            .eq('junta_id', juntaId)
+            .eq('usuario_id', usuarioId);
+      } catch (e) {
+        final s = e.toString();
+        debugPrint('Initial update error in actualizarParticipanteVoucher: $s');
+        // If DB doesn't have the column 'pago_realizado' retry without it
+        if (s.contains('pago_realizado') || s.contains('42703')) {
+          if (payload.containsKey('voucher_url')) {
+            await supabase
+                .from('participantes')
+                .update({'voucher_url': payload['voucher_url']})
+                .eq('junta_id', juntaId)
+                .eq('usuario_id', usuarioId);
+          } else {
+            rethrow;
+          }
+        } else {
+          rethrow;
+        }
+      }
+    } catch (e) {
+      debugPrint('Error actualizarParticipanteVoucher wrapper: $e');
+      _checkAndSignOutOnAuthError(e);
+      rethrow;
     }
   }
 
