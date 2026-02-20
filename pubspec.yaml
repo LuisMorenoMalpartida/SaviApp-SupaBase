@@ -19,6 +19,7 @@ dependencies:
   flutter_svg: ^2.0.7
   mime: ^1.0.3
   shared_preferences: ^2.1.1
+  http: ^0.13.6
 
 dev_dependencies:
   flutter_test:

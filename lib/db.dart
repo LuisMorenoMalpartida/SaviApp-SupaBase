@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 import 'logger.dart';
 //import 'dart:io';
 //import 'package:mime/mime.dart';
@@ -144,6 +146,113 @@ void checkAndSignOutOnAuthError(Object e) {
   }
 }
 
+// Wrapper para reintentos y normalización de errores en llamadas al backend.
+Future<T> withRetries<T>(Future<T> Function() fn,
+    {int retries = 2,
+    Duration initialDelay = const Duration(seconds: 1)}) async {
+  int attempt = 0;
+  while (true) {
+    try {
+      return await fn();
+    } catch (e) {
+      logger.error('[backend] withRetries attempt=$attempt error=$e');
+      // Detect auth issues and sign out if necessary
+      try {
+        checkAndSignOutOnAuthError(e);
+      } catch (_) {}
+      attempt += 1;
+      if (attempt > retries) {
+        rethrow;
+      }
+      // backoff
+      await Future.delayed(initialDelay * attempt);
+    }
+  }
+}
+
+// Device token helpers + FCM sender (optional serverKey required to actually send)
+Future<void> registerDeviceToken(String userId, String token) async {
+  try {
+    await withRetries(() async {
+      await supabase
+          .from('device_tokens')
+          .upsert({'user_id': userId, 'token': token});
+      return Future.value();
+    });
+  } catch (e) {
+    logger.error('registerDeviceToken error: $e');
+    checkAndSignOutOnAuthError(e);
+  }
+}
+
+Future<void> removeDeviceToken(String userId, String token) async {
+  try {
+    await withRetries(() async {
+      await supabase
+          .from('device_tokens')
+          .delete()
+          .eq('user_id', userId)
+          .eq('token', token);
+      return Future.value();
+    });
+  } catch (e) {
+    logger.error('removeDeviceToken error: $e');
+    checkAndSignOutOnAuthError(e);
+  }
+}
+
+Future<List<String>> getDeviceTokensForUser(String userId) async {
+  try {
+    final List<dynamic> res = await withRetries(() async {
+      final rows = await supabase
+          .from('device_tokens')
+          .select('token')
+          .eq('user_id', userId);
+      return rows as List<dynamic>;
+    });
+    return res
+        .map((r) => r['token']?.toString() ?? '')
+        .where((t) => t.isNotEmpty)
+        .toList();
+  } catch (e) {
+    logger.error('getDeviceTokensForUser error: $e');
+    checkAndSignOutOnAuthError(e);
+    return [];
+  }
+}
+
+/// Send push notifications via FCM legacy endpoint. Provide `serverKey` to actually send.
+Future<http.Response?> sendPushViaFcm({
+  required List<String> tokens,
+  required String title,
+  required String body,
+  required String serverKey,
+}) async {
+  if (tokens.isEmpty) return null;
+  final url = Uri.parse('https://fcm.googleapis.com/fcm/send');
+  final payload = {
+    'registration_ids': tokens,
+    'notification': {'title': title, 'body': body},
+  };
+  try {
+    final resp = await http.post(url,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'key=$serverKey'
+        },
+        body: jsonEncode(payload));
+    if (resp.statusCode >= 400) {
+      logger.error('FCM send error: ${resp.statusCode} ${resp.body}');
+    } else {
+      logger.info('FCM sent, status=${resp.statusCode}');
+    }
+    return resp;
+  } catch (e) {
+    logger.error('FCM request failed: $e');
+    return null;
+  }
+}
+
 // --- PROVIDER (LÓGICA) ---
 class SaviState extends ChangeNotifier {
   User? currentUser;
@@ -153,7 +262,7 @@ class SaviState extends ChangeNotifier {
 
   SaviState() {
     // Escuchar cambios de sesión en tiempo real
-    debugPrint(
+    logger.debug(
         '[backend.SaviState] constructor start: ${DateTime.now().toIso8601String()}');
     supabase.auth.onAuthStateChange.listen((data) {
       final session = data.session;
@@ -166,7 +275,7 @@ class SaviState extends ChangeNotifier {
       }
       notifyListeners();
     });
-    debugPrint(
+    logger.debug(
         '[backend.SaviState] constructor end: ${DateTime.now().toIso8601String()}');
   }
 
@@ -296,7 +405,7 @@ class SaviState extends ChangeNotifier {
   Future<void> cargarMisJuntas() async {
     if (currentUser == null) return;
     try {
-      debugPrint(
+      logger.debug(
           '[backend.SaviState] cargarMisJuntas start: ${DateTime.now().toIso8601String()} user=${currentUser?.id}');
       final parts = await supabase
           .from('participantes')
@@ -317,11 +426,11 @@ class SaviState extends ChangeNotifier {
       } else {
         misJuntas = [];
       }
-      debugPrint(
+      logger.debug(
           '[backend.SaviState] cargarMisJuntas finished: ${DateTime.now().toIso8601String()} count=${misJuntas.length}');
       notifyListeners();
     } catch (e) {
-      debugPrint("Error carga: $e");
+      logger.error("Error carga: $e");
       _checkAndSignOutOnAuthError(e);
     }
   }
@@ -337,7 +446,7 @@ class SaviState extends ChangeNotifier {
       // refrescar lista local
       await cargarMisJuntas();
     } catch (e) {
-      debugPrint('Error eliminando junta: $e');
+      logger.error('Error eliminando junta: $e');
       _checkAndSignOutOnAuthError(e);
     } finally {
       isLoading = false;
@@ -356,7 +465,7 @@ class SaviState extends ChangeNotifier {
       if (perfil is Map<String, dynamic>) return perfil;
       return null;
     } catch (e) {
-      debugPrint('Error obteniendo perfil: $e');
+      logger.error('Error obteniendo perfil: $e');
       _checkAndSignOutOnAuthError(e);
       return null;
     }
@@ -416,7 +525,7 @@ class SaviState extends ChangeNotifier {
           .eq('junta_id', juntaId);
       return (res as List<dynamic>);
     } catch (e) {
-      debugPrint('Error obtenerSolicitudesPorJunta: $e');
+      logger.error('Error obtenerSolicitudesPorJunta: $e');
       _checkAndSignOutOnAuthError(e);
       return [];
     }
@@ -462,7 +571,7 @@ class SaviState extends ChangeNotifier {
           .from('solicitudes')
           .update({'estado': estado}).eq('id', solicitudId);
     } catch (e) {
-      debugPrint('Error actualizarSolicitudEstado: $e');
+      logger.error('Error actualizarSolicitudEstado: $e');
       _checkAndSignOutOnAuthError(e);
       rethrow;
     }
@@ -477,7 +586,7 @@ class SaviState extends ChangeNotifier {
         'rol': rol,
       });
     } catch (e) {
-      debugPrint('Error insertarParticipante: $e');
+      logger.error('Error insertarParticipante: $e');
       _checkAndSignOutOnAuthError(e);
       rethrow;
     }
@@ -498,7 +607,8 @@ class SaviState extends ChangeNotifier {
             .eq('usuario_id', usuarioId);
       } catch (e) {
         final s = e.toString();
-        debugPrint('Initial update error in actualizarParticipanteVoucher: $s');
+        logger
+            .debug('Initial update error in actualizarParticipanteVoucher: $s');
         // If DB doesn't have the column 'pago_realizado' retry without it
         if (s.contains('pago_realizado') || s.contains('42703')) {
           if (payload.containsKey('voucher_url')) {
@@ -515,7 +625,7 @@ class SaviState extends ChangeNotifier {
         }
       }
     } catch (e) {
-      debugPrint('Error actualizarParticipanteVoucher wrapper: $e');
+      logger.error('Error actualizarParticipanteVoucher wrapper: $e');
       _checkAndSignOutOnAuthError(e);
       rethrow;
     }
@@ -545,7 +655,7 @@ class SaviState extends ChangeNotifier {
 
       onSuccess();
     } catch (e) {
-      debugPrint('Error actualizando perfil: $e');
+      logger.error('Error actualizando perfil: $e');
       _checkAndSignOutOnAuthError(e);
       onError(e.toString());
     }
@@ -608,7 +718,7 @@ class SaviState extends ChangeNotifier {
     return publicUrl;
     */
 
-    debugPrint('subirAvatar is temporarily disabled');
+    logger.debug('subirAvatar is temporarily disabled');
     return null;
   }
 
@@ -620,7 +730,7 @@ class SaviState extends ChangeNotifier {
       isLoading = true;
       notifyListeners();
       final cleaned = codigo.trim();
-      debugPrint('[backend] unirseAJunta buscar codigo="$cleaned"');
+      logger.debug('[backend] unirseAJunta buscar codigo="$cleaned"');
       if (cleaned.isEmpty) {
         onError('Código vacío');
         return;
@@ -635,7 +745,7 @@ class SaviState extends ChangeNotifier {
       // Try case-insensitive lookup if exact match failed
       if (junta == null) {
         final pattern = '%$cleaned%';
-        debugPrint('[backend] trying ilike with pattern="$pattern"');
+        logger.debug('[backend] trying ilike with pattern="$pattern"');
         try {
           junta = await supabase
               .from('juntas')
@@ -643,7 +753,7 @@ class SaviState extends ChangeNotifier {
               .filter('codigo_acceso', 'ilike', pattern)
               .maybeSingle();
         } catch (e) {
-          debugPrint('[backend] ilike search failed: $e');
+          logger.error('[backend] ilike search failed: $e');
         }
       }
 
@@ -655,14 +765,14 @@ class SaviState extends ChangeNotifier {
               .select('id,codigo_acceso')
               .order('creado_at', ascending: false)
               .limit(50);
-          debugPrint(
+          logger.debug(
               '[backend] recent joined codes (sample): ${recent is List ? (recent.map((r) => r['codigo_acceso']).toList()) : recent}');
 
           if (recent is List) {
             for (var r in recent) {
               final code = (r['codigo_acceso'] ?? '').toString().trim();
               if (code.toLowerCase() == cleaned.toLowerCase()) {
-                debugPrint(
+                logger.debug(
                     '[backend] client-side matched code="$code" id=${r['id']}');
                 junta = r;
                 break;
@@ -670,11 +780,11 @@ class SaviState extends ChangeNotifier {
             }
           }
         } catch (e) {
-          debugPrint('[backend] recent codes debug failed: $e');
+          logger.error('[backend] recent codes debug failed: $e');
         }
       }
 
-      debugPrint('[backend] unirseAJunta result for "$cleaned": $junta');
+      logger.debug('[backend] unirseAJunta result for "$cleaned": $junta');
 
       if (junta == null) {
         onError("Código no existe");
@@ -713,7 +823,7 @@ class SaviState extends ChangeNotifier {
     try {
       await supabase.auth.signOut();
     } catch (e) {
-      debugPrint('Error signing out: $e');
+      logger.error('Error signing out: $e');
     }
   }
 
@@ -724,11 +834,11 @@ class SaviState extends ChangeNotifier {
         s.contains('refresh token not found')) {
       // Forzar sign out local si el refresh token no existe/está inválido
       try {
-        debugPrint(
+        logger.info(
             '[backend] _checkAndSignOutOnAuthError matched, signing out. error="$s"');
         supabase.auth.signOut();
       } catch (err) {
-        debugPrint(
+        logger.error(
             '[backend] _checkAndSignOutOnAuthError signOut failed: $err');
       }
     }
