@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import '../state/savi_state.dart';
+import 'package:savi_app/logger.dart';
 import 'tabs/crear_tab.dart';
 import 'tabs/perfil_tab.dart';
 
@@ -447,7 +448,7 @@ class _HomeScreenState extends State<HomeScreen> {
           await _imagePicker.pickImage(source: ImageSource.gallery);
       if (picked != null) setState(() => _qrImage = picked);
     } catch (e) {
-      debugPrint('Error picking image: $e');
+      logger.error('Error picking image: $e');
     }
   }
 

@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../state/savi_state.dart';
 
 class RecuperarScreen extends StatefulWidget {
   const RecuperarScreen({super.key});
@@ -11,7 +13,7 @@ class _RecuperarScreenState extends State<RecuperarScreen> {
   final emailCtrl = TextEditingController();
   bool _sending = false;
   bool _sent = false;
-  String _newPassword = '••••••••';
+  String? _errorText;
 
   @override
   void initState() {
@@ -53,6 +55,7 @@ class _RecuperarScreenState extends State<RecuperarScreen> {
                   decoration: InputDecoration(
                     labelText: 'Correo electrónico',
                     prefixIcon: const Icon(Icons.email, color: Colors.orange),
+                    errorText: _errorText,
                     filled: true,
                     fillColor: Colors.grey[50],
                     border: OutlineInputBorder(
@@ -76,16 +79,36 @@ class _RecuperarScreenState extends State<RecuperarScreen> {
                       foregroundColor: Colors.black,
                       shape: const StadiumBorder(),
                     ),
-                    onPressed: _sending || emailCtrl.text.isEmpty
+                    onPressed: _sending ||
+                            emailCtrl.text.isEmpty ||
+                            (_errorText != null)
                         ? null
                         : () async {
+                            FocusScope.of(context).unfocus();
                             setState(() => _sending = true);
-                            await Future.delayed(
-                                const Duration(milliseconds: 700));
+                            // validate email format one more time
+                            final email = emailCtrl.text.trim();
+                            final emailRegex =
+                                RegExp(r"^[^@\s]+@[^@\s]+\.[^@\s]+$");
+                            if (!emailRegex.hasMatch(email)) {
+                              setState(() {
+                                _sending = false;
+                                _errorText = 'Email inválido';
+                              });
+                              return;
+                            }
+
+                            final state =
+                                Provider.of<SaviState>(context, listen: false);
+                            final success =
+                                await state.solicitarRecuperacion(email);
+                            if (!mounted) return;
                             setState(() {
                               _sending = false;
-                              _sent = true;
-                              _newPassword = 'nuevaClave123'; // placeholder
+                              _sent = success;
+                              if (!success) {
+                                _errorText = 'Error al solicitar recuperación';
+                              }
                             });
                           },
                     child: _sending
@@ -102,10 +125,10 @@ class _RecuperarScreenState extends State<RecuperarScreen> {
                 const SizedBox(height: 8),
                 Icon(Icons.check_circle, size: 56, color: Colors.orange),
                 const SizedBox(height: 12),
-                const Text('Se ha enviado un correo a tu dirección.'),
+                const Text('Se ha enviado un correo de restablecimiento.'),
                 const SizedBox(height: 8),
-                Text('Nueva contraseña (simulada): $_newPassword',
-                    style: const TextStyle(fontWeight: FontWeight.bold)),
+                const Text(
+                    'Revisa tu bandeja de entrada y sigue las instrucciones.'),
                 const SizedBox(height: 12),
                 TextButton(
                   onPressed: () => Navigator.pop(context),

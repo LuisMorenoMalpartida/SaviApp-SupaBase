@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../state/savi_state.dart';
+import '../widgets/app_card.dart';
+import '../widgets/app_button.dart';
 
 class IntegrantesPagosScreen extends StatelessWidget {
   const IntegrantesPagosScreen({super.key});
@@ -20,22 +22,20 @@ class IntegrantesPagosScreen extends StatelessWidget {
           return Consumer<SaviState>(builder: (ctx, state, _) {
             final c = state.listaCupos[i];
             final nombre = c.nombre ?? 'Disponible';
-            return Card(
-              child: Padding(
-                padding: const EdgeInsets.all(8.0),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(nombre),
-                    const SizedBox(height: 8),
-                    Text(c.pagoRealizado ? 'Pagado' : 'Pendiente'),
-                    const SizedBox(height: 8),
-                    ElevatedButton(
-                        onPressed: () =>
-                            _mostrarSubirVoucher(context, state, i),
-                        child: const Text('Subir voucher'))
-                  ],
-                ),
+            return AppCard(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(nombre,
+                      style: const TextStyle(fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 8),
+                  Text(c.pagoRealizado ? 'Pagado' : 'Pendiente'),
+                  const SizedBox(height: 12),
+                  AppButton(
+                      onPressed: () => _mostrarSubirVoucher(context, state, i),
+                      child: const Text('Subir voucher'))
+                ],
               ),
             );
           });

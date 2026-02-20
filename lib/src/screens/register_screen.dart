@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../utils/toast.dart';
 import '../state/savi_state.dart';
+import '../utils/validators.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -46,6 +47,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
   @override
   Widget build(BuildContext context) {
     final state = Provider.of<SaviState>(context, listen: false);
+    final emailValid = isValidEmail(emailCtrl.text);
+    final passValid = isValidPassword(passCtrl.text);
+    final nombreValid = isNonEmpty(nombreCtrl.text);
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -71,6 +75,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   decoration: InputDecoration(
                     labelText: 'Nombre',
                     prefixIcon: const Icon(Icons.person, color: Colors.orange),
+                    errorText: nombreCtrl.text.isEmpty
+                        ? null
+                        : (nombreValid ? null : 'Nombre requerido'),
                     filled: true,
                     fillColor: Colors.grey[50],
                     contentPadding: const EdgeInsets.symmetric(
@@ -162,6 +169,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   decoration: InputDecoration(
                     labelText: 'Email',
                     prefixIcon: const Icon(Icons.email, color: Colors.orange),
+                    errorText: emailCtrl.text.isEmpty
+                        ? null
+                        : (emailValid ? null : 'Email inválido'),
                     filled: true,
                     fillColor: Colors.grey[50],
                     contentPadding: const EdgeInsets.symmetric(
@@ -185,6 +195,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   decoration: InputDecoration(
                     labelText: 'Contraseña',
                     prefixIcon: const Icon(Icons.lock, color: Colors.orange),
+                    errorText: passCtrl.text.isEmpty
+                        ? null
+                        : (passValid ? null : 'Min 6 caracteres'),
                     filled: true,
                     fillColor: Colors.grey[50],
                     contentPadding: const EdgeInsets.symmetric(
@@ -210,11 +223,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       foregroundColor: Colors.black,
                       shape: const StadiumBorder(),
                     ),
-                    onPressed: (_loading ||
-                            emailCtrl.text.isEmpty ||
-                            passCtrl.text.isEmpty)
-                        ? null
-                        : () => _handleRegister(context, state),
+                    onPressed:
+                        (_loading || !emailValid || !passValid || !nombreValid)
+                            ? null
+                            : () => _handleRegister(context, state),
                     child: _loading
                         ? const SizedBox(
                             width: 20,

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../state/savi_state.dart';
+import '../utils/validators.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -35,6 +36,8 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     final state = Provider.of<SaviState>(context, listen: false);
+    final emailValid = isValidEmail(emailCtrl.text);
+    final passValid = isValidPassword(passCtrl.text);
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -70,6 +73,9 @@ class _LoginScreenState extends State<LoginScreen> {
                   decoration: InputDecoration(
                     labelText: 'Email',
                     prefixIcon: const Icon(Icons.email, color: Colors.orange),
+                    errorText: emailCtrl.text.isEmpty
+                        ? null
+                        : (emailValid ? null : 'Email inválido'),
                     filled: true,
                     fillColor: Colors.grey[50],
                     contentPadding: const EdgeInsets.symmetric(
@@ -93,6 +99,9 @@ class _LoginScreenState extends State<LoginScreen> {
                   decoration: InputDecoration(
                     labelText: 'Password',
                     prefixIcon: const Icon(Icons.lock, color: Colors.orange),
+                    errorText: passCtrl.text.isEmpty
+                        ? null
+                        : (passValid ? null : 'Contraseña muy corta'),
                     filled: true,
                     fillColor: Colors.grey[50],
                     contentPadding: const EdgeInsets.symmetric(
@@ -118,9 +127,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       foregroundColor: Colors.black,
                       shape: const StadiumBorder(),
                     ),
-                    onPressed: (_loading ||
-                            emailCtrl.text.isEmpty ||
-                            passCtrl.text.isEmpty)
+                    onPressed: (_loading || !emailValid || !passValid)
                         ? null
                         : () => _handleLogin(context, state),
                     child: _loading

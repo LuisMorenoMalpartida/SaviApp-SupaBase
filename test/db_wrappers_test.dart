@@ -121,9 +121,23 @@ class FakeSupabaseClient {
   }
 }
 
+class FakeAuthThrow extends FakeAuth {
+  @override
+  Future<void> resetPasswordForEmail(String email) =>
+      Future(() => throw Exception('auth reset failed'));
+}
+
+class FakeSupabaseClientAuthFail extends FakeSupabaseClient {
+  FakeSupabaseClientAuthFail(super.data);
+  @override
+  FakeAuth get auth => FakeAuthThrow();
+}
+
 class FakeAuth {
   // backend.SaviState listens to onAuthStateChange; provide an empty stream.
   Stream get onAuthStateChange => const Stream.empty();
+  // Support reset password used by enviarEmailRecuperacion
+  Future<void> resetPasswordForEmail(String email) => Future.value();
 }
 
 void main() {
@@ -200,6 +214,24 @@ void main() {
       backend.setSupabaseClient(client);
       try {
         await backend.SaviState().actualizarSolicitudEstado('s1', 'aprobada');
+        fail('expected exception');
+      } catch (e) {
+        expect(e, isA<Exception>());
+      }
+    });
+
+    test('enviarEmailRecuperacion succeeds', () async {
+      final fake = FakeSupabaseClient({'perfiles': []});
+      backend.setSupabaseClient(fake);
+      // Should not throw
+      await backend.SaviState().enviarEmailRecuperacion('a@b.com');
+    });
+
+    test('enviarEmailRecuperacion rethrows on auth error', () async {
+      final failClient = FakeSupabaseClientAuthFail({'perfiles': []});
+      backend.setSupabaseClient(failClient);
+      try {
+        await backend.SaviState().enviarEmailRecuperacion('a@b.com');
         fail('expected exception');
       } catch (e) {
         expect(e, isA<Exception>());

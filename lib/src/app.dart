@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'utils/navigation.dart';
 import 'screens/welcome_screen.dart';
+import 'theme.dart';
 import 'screens/login_screen.dart';
 import 'screens/register_screen.dart';
 import 'screens/home_screen.dart';
@@ -147,7 +148,7 @@ class _SaviAppState extends State<SaviApp> {
       navigatorKey: navigatorKey,
       debugShowCheckedModeBanner: false,
       title: 'SAVI',
-      theme: ThemeData(primarySwatch: Colors.orange),
+      theme: AppTheme.light(),
       initialRoute: '/welcome',
       builder: (context, child) {
         return PopScope(

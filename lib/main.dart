@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'src/app.dart';
 import 'src/state/savi_state.dart';
+import 'logger.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -14,9 +15,10 @@ Future<void> main() async {
       anonKey:
           'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind3cnp1ZHFrenljZGdwc2Rndm51Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzEzNDUxOTEsImV4cCI6MjA4NjkyMTE5MX0.O8K7g1mih8XgzDqTH4tCoGgoPf3aV53h1Fhuz7A7N3c',
     );
-    debugPrint('✅ Supabase initialized');
+    initLogger(level: LogLevel.debug);
+    logger.info('✅ Supabase initialized');
   } catch (e) {
-    debugPrint('❌ Supabase initialize error: $e');
+    logger.error('❌ Supabase initialize error: $e');
   }
 
   runApp(

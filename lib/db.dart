@@ -471,6 +471,18 @@ class SaviState extends ChangeNotifier {
     }
   }
 
+  /// Enviar correo de restablecimiento de contraseña vía Supabase
+  Future<void> enviarEmailRecuperacion(String email) async {
+    try {
+      // Supabase client provides resetPasswordForEmail in the auth API
+      await supabase.auth.resetPasswordForEmail(email);
+    } catch (e) {
+      logger.error('Error enviarEmailRecuperacion: $e');
+      _checkAndSignOutOnAuthError(e);
+      rethrow;
+    }
+  }
+
   // --- WRAPPERS ADICIONALES PARA PARTICIPANTES / SOLICITUDES / PERFILES ---
   Future<List<dynamic>> obtenerParticipantesPorJunta(String juntaId) async {
     try {

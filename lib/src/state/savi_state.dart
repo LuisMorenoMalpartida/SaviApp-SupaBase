@@ -58,6 +58,8 @@ class SaviState extends ChangeNotifier {
   Timer? _solicitudesTimer;
   String? ultimoCodigoCreado;
   StreamSubscription<dynamic>? _solicitudesSub;
+  // Optional device token (e.g. FCM) that UI can set after obtaining it.
+  String? deviceToken;
 
   SaviState() {
     _init();
@@ -65,29 +67,29 @@ class SaviState extends ChangeNotifier {
 
   Future<void> _init() async {
     try {
-      debugPrint(
+      logger.debug(
           '[SaviState] _init start: ${DateTime.now().toIso8601String()}');
       // Escuchar cambios en la autenticación de manera segura
       supabase.auth.onAuthStateChange.listen((data) {
         try {
           _actualizarDesdeBackend();
         } catch (e) {
-          debugPrint('Auth state change handler error: $e');
+          logger.error('Auth state change handler error: $e');
         }
       });
 
       // Cargar estado inicial
       await _actualizarDesdeBackend();
-      debugPrint(
+      logger.debug(
           '[SaviState] _init finished _actualizar: ${DateTime.now().toIso8601String()}');
     } catch (e) {
-      debugPrint("Error en init: $e");
+      logger.error("Error en init: $e");
     }
   }
 
   Future<void> _actualizarDesdeBackend() async {
     try {
-      debugPrint(
+      logger.debug(
           '[SaviState] _actualizarDesdeBackend start: ${DateTime.now().toIso8601String()} currentUser=${_backend.currentUser?.id ?? ''}');
       if (_backend.currentUser != null) {
         miIdUsuario = _backend.currentUser!.id;
@@ -114,11 +116,11 @@ class SaviState extends ChangeNotifier {
         montoJunta = "";
         codigoJunta = "";
       }
-      debugPrint(
+      logger.debug(
           '[SaviState] _actualizarDesdeBackend finished: ${DateTime.now().toIso8601String()}');
       notifyListeners();
     } catch (e) {
-      debugPrint("Error en _actualizarDesdeBackend: $e");
+      logger.error("Error en _actualizarDesdeBackend: $e");
     }
   }
 
@@ -161,7 +163,7 @@ class SaviState extends ChangeNotifier {
       try {
         await cargarSolicitudesParaDueno();
       } catch (e) {
-        debugPrint('Error polling solicitudes: $e');
+        logger.error('Error polling solicitudes: $e');
       }
     });
   }
@@ -191,11 +193,11 @@ class SaviState extends ChangeNotifier {
         try {
           await cargarSolicitudesParaDueno();
         } catch (e) {
-          debugPrint('Error handling realtime solicitudes event: $e');
+          logger.error('Error handling realtime solicitudes event: $e');
         }
       });
     } catch (e) {
-      debugPrint(
+      logger.error(
           'Realtime subscription failed, keeping polling as fallback: $e');
       startPollingSolicitudes();
     }
@@ -261,7 +263,7 @@ class SaviState extends ChangeNotifier {
       solicitudesUnirse = await compute(parsers.parseSolicitudes, combined);
       notifyListeners();
     } catch (e) {
-      debugPrint('Error cargando solicitudes para dueño: $e');
+      logger.error('Error cargando solicitudes para dueño: $e');
       solicitudesUnirse = [];
     }
   }
@@ -269,7 +271,7 @@ class SaviState extends ChangeNotifier {
   // --- PERFIL ---
   Future<void> cargarPerfil() async {
     try {
-      debugPrint(
+      logger.debug(
           '[SaviState] cargarPerfil start: ${DateTime.now().toIso8601String()} user=$miIdUsuario');
       if (miIdUsuario.isEmpty) {
         return;
@@ -282,11 +284,23 @@ class SaviState extends ChangeNotifier {
         perfilTelefono = perfil['telefono'] ?? '';
         perfilAvatar = perfil['avatar_url'] ?? '';
       }
-      debugPrint(
+      logger.debug(
           '[SaviState] cargarPerfil finished: ${DateTime.now().toIso8601String()}');
       notifyListeners();
     } catch (e) {
-      debugPrint('Error cargando perfil: $e');
+      logger.error('Error cargando perfil: $e');
+    }
+  }
+
+  /// Solicitar restablecimiento de contraseña para el email dado.
+  /// Retorna true si se envió correctamente, false en error.
+  Future<bool> solicitarRecuperacion(String email) async {
+    try {
+      await backend.SaviState().enviarEmailRecuperacion(email);
+      return true;
+    } catch (e) {
+      logger.error('Error solicitarRecuperacion: $e');
+      return false;
     }
   }
 
@@ -316,7 +330,7 @@ class SaviState extends ChangeNotifier {
         },
       );
     } catch (e) {
-      debugPrint('Error guardando perfil: $e');
+      logger.error('Error guardando perfil: $e');
       _safeToast('Error al guardar perfil');
     }
   }
@@ -331,7 +345,7 @@ class SaviState extends ChangeNotifier {
       }
       return url;
     } catch (e) {
-      debugPrint('Error en subirAvatar: $e');
+      logger.error('Error en subirAvatar: $e');
       _safeToast('Error al subir avatar');
       return null;
     }
@@ -349,7 +363,7 @@ class SaviState extends ChangeNotifier {
         navigatorKey.currentState?.pushReplacementNamed('/home');
       }
     } catch (e) {
-      debugPrint("Error en iniciarSesion: $e");
+      logger.error("Error en iniciarSesion: $e");
       _safeToast("Error al iniciar sesión");
     }
   }
@@ -385,7 +399,7 @@ class SaviState extends ChangeNotifier {
       );
       return await completer.future;
     } catch (e) {
-      debugPrint("Error en registrarUsuario: $e");
+      logger.error("Error en registrarUsuario: $e");
       _safeToast("Error al registrar usuario");
       return false;
     }
@@ -393,13 +407,49 @@ class SaviState extends ChangeNotifier {
 
   Future<void> logout() async {
     try {
+      // If we have a device token registered, remove it from backend first
+      if (deviceToken != null && _backend.currentUser != null) {
+        try {
+          await backend.removeDeviceToken(
+              _backend.currentUser!.id, deviceToken!);
+        } catch (e) {
+          logger.error('removeDeviceToken failed: $e');
+        }
+      }
+
       await _backend.logout();
+      deviceToken = null;
       _safeToast("Sesión cerrada");
       navigatorKey.currentState
           ?.pushNamedAndRemoveUntil('/login', (r) => false);
     } catch (e) {
-      debugPrint("Error en logout: $e");
+      logger.error("Error en logout: $e");
     }
+  }
+
+  /// Register a device token (FCM) for the current user. The UI should
+  /// call this after acquiring the token from Firebase Messaging.
+  Future<void> setDeviceToken(String token) async {
+    deviceToken = token;
+    if (_backend.currentUser != null) {
+      try {
+        await backend.registerDeviceToken(_backend.currentUser!.id, token);
+      } catch (e) {
+        logger.error('registerDeviceToken failed: $e');
+      }
+    }
+  }
+
+  /// Clear/unregister the stored device token for the current user.
+  Future<void> clearDeviceToken() async {
+    if (deviceToken != null && _backend.currentUser != null) {
+      try {
+        await backend.removeDeviceToken(_backend.currentUser!.id, deviceToken!);
+      } catch (e) {
+        logger.error('clearDeviceToken failed: $e');
+      }
+    }
+    deviceToken = null;
   }
 
   @override
@@ -422,7 +472,7 @@ class SaviState extends ChangeNotifier {
       juntasActivas = misJuntas.length;
       notifyListeners();
     } catch (e) {
-      debugPrint("Error en cargarJuntas: $e");
+      logger.error("Error en cargarJuntas: $e");
       misJuntas = [];
       juntasActivas = 0;
       notifyListeners();
@@ -435,7 +485,7 @@ class SaviState extends ChangeNotifier {
       await cargarDetallesJunta(junta.id);
       notifyListeners();
     } catch (e) {
-      debugPrint("Error en seleccionarJunta: $e");
+      logger.error("Error en seleccionarJunta: $e");
     }
   }
 
@@ -464,7 +514,7 @@ class SaviState extends ChangeNotifier {
       // Realtime subscription removed for compatibility; rely on explicit
       // refresh when opening solicitudes or reloading state.
     } catch (e) {
-      debugPrint("Error cargando detalles: $e");
+      logger.error("Error cargando detalles: $e");
     } finally {
       isLoading = false;
       notifyListeners();
@@ -543,7 +593,7 @@ class SaviState extends ChangeNotifier {
 
       solicitudesIntercambio = [];
     } catch (e) {
-      debugPrint("Error cargando solicitudes: $e");
+      logger.error("Error cargando solicitudes: $e");
       backend.checkAndSignOutOnAuthError(e);
       solicitudesUnirse = [];
     }
@@ -581,19 +631,19 @@ class SaviState extends ChangeNotifier {
             final codigo = data['codigo_acceso']?.toString() ?? '';
             await _safeShowCodeDialog(codigo);
           } catch (e) {
-            debugPrint('Error mostrando codigo: $e');
+            logger.error('Error mostrando codigo: $e');
           }
 
           // Refrescar la lista de juntas para que la UI (Home) se actualice
           try {
             await cargarJuntas();
           } catch (e) {
-            debugPrint('Error refrescando juntas tras creación: $e');
+            logger.error('Error refrescando juntas tras creación: $e');
           }
         },
       );
     } catch (e) {
-      debugPrint("Error en crearJunta: $e");
+      logger.error("Error en crearJunta: $e");
       _safeToast("Error al crear la junta");
     }
   }
@@ -605,7 +655,7 @@ class SaviState extends ChangeNotifier {
       await cargarJuntas();
       _safeToast('Junta eliminada');
     } catch (e) {
-      debugPrint('Error en eliminarJunta: $e');
+      logger.error('Error en eliminarJunta: $e');
       _safeToast('Error al eliminar junta');
     }
   }
@@ -622,7 +672,7 @@ class SaviState extends ChangeNotifier {
         },
       );
     } catch (e) {
-      debugPrint("Error en unirseAJunta: $e");
+      logger.error("Error en unirseAJunta: $e");
       _safeToast("Error al unirse a la junta");
     }
   }
@@ -651,7 +701,7 @@ class SaviState extends ChangeNotifier {
       _safeToast("Solicitud aceptada");
       notifyListeners();
     } catch (e) {
-      debugPrint("Error aceptando solicitud: $e");
+      logger.error("Error aceptando solicitud: $e");
       backend.checkAndSignOutOnAuthError(e);
       _safeToast("Error al aceptar solicitud");
     }
@@ -667,7 +717,7 @@ class SaviState extends ChangeNotifier {
       _safeToast("Solicitud rechazada");
       notifyListeners();
     } catch (e) {
-      debugPrint("Error rechazando solicitud: $e");
+      logger.error("Error rechazando solicitud: $e");
       backend.checkAndSignOutOnAuthError(e);
       _safeToast("Error al rechazar solicitud");
     }
@@ -684,7 +734,7 @@ class SaviState extends ChangeNotifier {
             juntaSeleccionada!.id, cupo.id,
             pagoRealizado: true, voucherUrl: voucherUrl);
       } catch (e) {
-        debugPrint('Error updating voucher via backend wrapper: $e');
+        logger.error('Error updating voucher via backend wrapper: $e');
         backend.checkAndSignOutOnAuthError(e);
         _safeToast('Error al subir voucher');
         return;
@@ -699,7 +749,7 @@ class SaviState extends ChangeNotifier {
 
       _safeToast('Pago registrado');
     } catch (e) {
-      debugPrint('Error subiendo voucher: $e');
+      logger.error('Error subiendo voucher: $e');
       backend.checkAndSignOutOnAuthError(e);
       _safeToast('Error al subir voucher');
     }
