@@ -13,6 +13,76 @@ import 'screens/sorteo_screen.dart';
 import 'screens/solicitudes_dueno_screen.dart';
 import 'screens/recuperar_screen.dart';
 
+// Compatibility shim: new Flutter `PopScope` API may not be available
+// on older SDKs or our linter; provide a thin wrapper that preserves
+// the expected `onWillPop` signature while delegating to
+// `WillPopScope`. This lets call sites use `PopScope(...)` safely.
+class PopScope extends StatefulWidget {
+  final Future<bool> Function()? onWillPop;
+  final Widget child;
+
+  const PopScope({super.key, this.onWillPop, required this.child});
+
+  @override
+  State<PopScope> createState() => _PopScopeState();
+}
+
+class _PopScopeState extends State<PopScope> {
+  Future<bool> Function()? _handler;
+
+  @override
+  void initState() {
+    super.initState();
+    _handler = widget.onWillPop ?? () async => true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final route = ModalRoute.of(context);
+      // `addScopedWillPopCallback` is deprecated; prefer `registerPopEntry`
+      // or a PopScope widget. Use `registerPopEntry` if available on Route.
+      try {
+        // best-effort: call the newer API when present
+        // ignore: avoid_dynamic_calls
+        (route as dynamic)?.registerPopEntry?.call(_onWillPop);
+      } catch (_) {
+        // fallback to the older API if the newer one isn't available
+        try {
+          // ignore: avoid_dynamic_calls
+          (route as dynamic)?.addScopedWillPopCallback?.call(_onWillPop);
+        } catch (_) {}
+      }
+    });
+  }
+
+  Future<bool> _onWillPop() async {
+    return await (_handler?.call() ?? Future.value(true));
+  }
+
+  @override
+  void didUpdateWidget(covariant PopScope oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _handler = widget.onWillPop ?? () async => true;
+  }
+
+  @override
+  void dispose() {
+    final route = ModalRoute.of(context);
+    try {
+      // try to unregister via the newer API if present
+      // ignore: avoid_dynamic_calls
+      (route as dynamic)?.unregisterPopEntry?.call(_onWillPop);
+    } catch (_) {
+      try {
+        // fallback to the older API
+        // ignore: avoid_dynamic_calls
+        (route as dynamic)?.removeScopedWillPopCallback?.call(_onWillPop);
+      } catch (_) {}
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
+}
+
 class SaviApp extends StatefulWidget {
   const SaviApp({super.key});
 
@@ -37,7 +107,7 @@ class _SaviAppState extends State<SaviApp> {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.85),
+                color: Colors.black.withAlpha((0.85 * 255).round()),
                 borderRadius: BorderRadius.circular(24),
               ),
               child: Text(
@@ -74,7 +144,7 @@ class _SaviAppState extends State<SaviApp> {
       theme: ThemeData(primarySwatch: Colors.orange),
       initialRoute: '/welcome',
       builder: (context, child) {
-        return WillPopScope(
+        return PopScope(
           onWillPop: () async {
             // if there's somewhere to pop inside navigator, allow default pop
             if (Navigator.of(context).canPop()) return true;
