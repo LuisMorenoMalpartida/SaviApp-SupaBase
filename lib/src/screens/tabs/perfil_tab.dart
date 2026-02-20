@@ -65,7 +65,7 @@ class _PerfilTabState extends State<PerfilTab> {
                       borderRadius: BorderRadius.circular(16),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black12.withOpacity(0.9),
+                          color: Colors.black12.withAlpha((0.9 * 255).round()),
                           blurRadius: 6,
                           offset: const Offset(0, 4),
                         ),
@@ -271,19 +271,19 @@ class _PerfilTabState extends State<PerfilTab> {
                             ? null
                             : () async {
                                 setState(() => _uploadingImage = true);
+                                final messenger = ScaffoldMessenger.of(context);
                                 try {
                                   try {
                                     await backendState
                                         .subirAvatar(_pickedImage!.path);
                                     await backendState.cargarPerfil();
                                     if (!mounted) return;
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                        const SnackBar(
-                                            content: Text('Imagen cambiada')));
+                                    messenger.showSnackBar(const SnackBar(
+                                        content: Text('Imagen cambiada')));
                                     setState(() => _pickedImage = null);
                                   } catch (e) {
                                     if (!mounted) return;
-                                    ScaffoldMessenger.of(context).showSnackBar(
+                                    messenger.showSnackBar(
                                         SnackBar(content: Text('Error: $e')));
                                   }
                                 } finally {

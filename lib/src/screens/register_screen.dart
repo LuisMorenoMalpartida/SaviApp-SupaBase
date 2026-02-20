@@ -241,23 +241,26 @@ class _RegisterScreenState extends State<RegisterScreen> {
     );
   }
 
-  void _handleRegister(BuildContext context, SaviState state) {
+  Future<void> _handleRegister(BuildContext context, SaviState state) async {
     FocusScope.of(context).unfocus();
     setState(() => _loading = true);
-    () async {
-      final success = await state.registrarUsuario(
-        email: emailCtrl.text,
-        password: passCtrl.text,
-        nombre: nombreCtrl.text,
-        apellido: apellidoCtrl.text,
-        dni: dniCtrl.text,
-        telefono: telefonoCtrl.text,
-      );
-      if (mounted) setState(() => _loading = false);
-      if (success && mounted) {
-        Toast.show("Registro exitoso. Ya puedes iniciar sesión.", context);
-        Navigator.pop(context);
-      }
-    }();
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+    final success = await state.registrarUsuario(
+      email: emailCtrl.text,
+      password: passCtrl.text,
+      nombre: nombreCtrl.text,
+      apellido: apellidoCtrl.text,
+      dni: dniCtrl.text,
+      telefono: telefonoCtrl.text,
+    );
+    if (!mounted) return;
+    setState(() => _loading = false);
+    if (success) {
+      // Use captured messenger and navigator (captured before await)
+      Toast.show(
+          "Registro exitoso. Ya puedes iniciar sesión.", messenger.context);
+      navigator.pop();
+    }
   }
 }

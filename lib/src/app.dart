@@ -29,25 +29,36 @@ class PopScope extends StatefulWidget {
 
 class _PopScopeState extends State<PopScope> {
   Future<bool> Function()? _handler;
+  Route<dynamic>? _route;
+  VoidCallback? _unregisterPop;
 
   @override
   void initState() {
     super.initState();
     _handler = widget.onWillPop ?? () async => true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final route = ModalRoute.of(context);
-      // `addScopedWillPopCallback` is deprecated; prefer `registerPopEntry`
-      // or a PopScope widget. Use `registerPopEntry` if available on Route.
+      // Cache the route and register pop callback; capture an unregister
+      // closure so we don't need to query the widget tree in dispose.
+      _route = ModalRoute.of(context);
+      final r = _route as dynamic;
       try {
-        // best-effort: call the newer API when present
-        // ignore: avoid_dynamic_calls
-        (route as dynamic)?.registerPopEntry?.call(_onWillPop);
+        r.registerPopEntry?.call(_onWillPop);
+        _unregisterPop = () {
+          try {
+            r.unregisterPopEntry?.call(_onWillPop);
+          } catch (_) {}
+        };
       } catch (_) {
-        // fallback to the older API if the newer one isn't available
         try {
-          // ignore: avoid_dynamic_calls
-          (route as dynamic)?.addScopedWillPopCallback?.call(_onWillPop);
-        } catch (_) {}
+          r.addScopedWillPopCallback?.call(_onWillPop);
+          _unregisterPop = () {
+            try {
+              r.removeScopedWillPopCallback?.call(_onWillPop);
+            } catch (_) {}
+          };
+        } catch (_) {
+          _unregisterPop = null;
+        }
       }
     });
   }
@@ -64,18 +75,13 @@ class _PopScopeState extends State<PopScope> {
 
   @override
   void dispose() {
-    final route = ModalRoute.of(context);
+    // Use the cached unregister closure registered in initState instead
+    // of querying the element tree here (which may be deactivated).
     try {
-      // try to unregister via the newer API if present
-      // ignore: avoid_dynamic_calls
-      (route as dynamic)?.unregisterPopEntry?.call(_onWillPop);
-    } catch (_) {
-      try {
-        // fallback to the older API
-        // ignore: avoid_dynamic_calls
-        (route as dynamic)?.removeScopedWillPopCallback?.call(_onWillPop);
-      } catch (_) {}
-    }
+      _unregisterPop?.call();
+    } catch (_) {}
+    _unregisterPop = null;
+    _route = null;
     super.dispose();
   }
 

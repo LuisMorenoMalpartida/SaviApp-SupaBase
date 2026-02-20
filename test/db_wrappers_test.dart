@@ -42,10 +42,12 @@ class FakeQuery implements Future<dynamic> {
       _future.then<R>(onValue, onError: onError as dynamic);
 
   @override
-  Future whenComplete(FutureOr action()) => _future.whenComplete(action);
+  Future whenComplete(FutureOr<void> Function() action) =>
+      _future.whenComplete(action);
 
   @override
-  Future timeout(Duration timeLimit, {FutureOr Function()? onTimeout}) =>
+  Future timeout(Duration timeLimit,
+          {FutureOr<dynamic> Function()? onTimeout}) =>
       _future.timeout(timeLimit, onTimeout: onTimeout);
 }
 

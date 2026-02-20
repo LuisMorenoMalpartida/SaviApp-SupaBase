@@ -60,7 +60,7 @@ class _DetallesJuntaScreenState extends State<DetallesJuntaScreen> {
                       borderRadius: BorderRadius.circular(12),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.03),
+                          color: Colors.black.withAlpha((0.03 * 255).round()),
                           blurRadius: 6,
                           offset: const Offset(0, 4),
                         ),
@@ -101,7 +101,8 @@ class _DetallesJuntaScreenState extends State<DetallesJuntaScreen> {
                               const SizedBox(height: 4),
                               Text('Creador de la junta',
                                   style: TextStyle(
-                                      color: Colors.black.withOpacity(0.56))),
+                                      color: Colors.black
+                                          .withAlpha((0.56 * 255).round()))),
                             ],
                           ),
                         ),
@@ -129,7 +130,8 @@ class _DetallesJuntaScreenState extends State<DetallesJuntaScreen> {
                       ),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.deepOrange.shade100.withOpacity(0.45),
+                          color: Colors.deepOrange.shade100
+                              .withAlpha((0.45 * 255).round()),
                           blurRadius: 8,
                           offset: const Offset(0, 6),
                         )
@@ -272,7 +274,7 @@ class _DetallesJuntaScreenState extends State<DetallesJuntaScreen> {
           borderRadius: BorderRadius.circular(12),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.035),
+              color: Colors.black.withAlpha((0.035 * 255).round()),
               blurRadius: 6,
               offset: const Offset(0, 4),
             )

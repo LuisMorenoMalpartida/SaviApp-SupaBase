@@ -178,8 +178,9 @@ class _HomeScreenState extends State<HomeScreen> {
             // List (shrinkWrapped inside the scroll view)
             Consumer<SaviState>(builder: (ctx, s, _) {
               final list = s.misJuntas;
-              if (list.isEmpty)
+              if (list.isEmpty) {
                 return const Center(child: Text('Aún no tienes juntas'));
+              }
               return ListView.separated(
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
@@ -193,6 +194,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       _navigating = true;
                       try {
                         await s.seleccionarJunta(junta);
+                        if (!mounted) return;
                         await Navigator.pushNamed(context, '/detalles');
                       } finally {
                         _navigating = false;
@@ -317,7 +319,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return Container(
       decoration: BoxDecoration(
-        color: Colors.orange.withOpacity(0.12),
+        color: Colors.orange.withAlpha((0.12 * 255).round()),
         borderRadius: BorderRadius.circular(12),
       ),
       padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
